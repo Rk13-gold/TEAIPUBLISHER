@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+telegram_ai_publisher.db
+*.session
