@@ -3,3 +3,4 @@ __pycache__/
 telegram_ai_publisher.db
 *.session
 venv/
+venv/
