@@ -1,0 +1,7 @@
+# Canal detectado: AUDIOBLAZE GRUP
+# ID del canal donde el bot es administrador
+# Tipo: supergroup
+# Username: @audioblazegrup
+# Status: administrator
+
+-1002251948196

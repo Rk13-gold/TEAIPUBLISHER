@@ -1,20 +1,61 @@
-# Telegram AI Publisher
+# Telegram AI Publisher - Enhanced Version
 
-## Descripción del Proyecto
-Telegram AI Publisher es una aplicación diseñada para automatizar la publicación de contenido en canales de Telegram utilizando inteligencia artificial. La aplicación permite gestionar títulos y asociar imágenes, generar contenido a través de un modelo de lenguaje, y programar publicaciones automáticas en Telegram.
+Una aplicación avanzada para gestionar y publicar contenido en Telegram con inteligencia artificial, monitoreo en tiempo real y gestión masiva de canales.
 
-## Estructura del Proyecto
-El proyecto está organizado en varios módulos, cada uno con responsabilidades específicas:
+## 🚀 Nuevas Funcionalidades Mejoradas
 
-- **core**: Maneja la configuración, la base de datos y el registro de eventos.
-- **data**: Define los modelos de datos y las operaciones de acceso a la base de datos.
-- **ai_integration**: Se encarga de la integración con el modelo de lenguaje LM Studio.
-- **services**: Contiene la lógica para interactuar con la API de Telegram y la programación de publicaciones.
-- **gui**: Implementa la interfaz gráfica de usuario utilizando PySide6.
-- **utils**: Proporciona funciones auxiliares, como validaciones y gestión de metadatos de imágenes.
-- **tests**: Contiene pruebas unitarias para asegurar la calidad del código.
+### ⚡ Sistema de Caché Inteligente
+- **Caché en memoria y base de datos** para consultas 10x más rápidas
+- **Actualización automática** de información obsoleta
+- **Gestión eficiente** de límites de la API de Telegram
 
-## Requisitos
+### 🔍 Búsqueda Avanzada de Canales
+- **Búsqueda por nombre y descripción** en tiempo real
+- **Operaciones por lotes** para consultar múltiples canales
+- **Historial de búsquedas** persistente
+- **Filtrado inteligente** por tipo, suscriptores y actividad
+
+### 📊 Monitoreo en Tiempo Real
+- **Seguimiento automático** de nuevos mensajes
+- **Alertas personalizables** para cambios importantes
+- **Estadísticas de crecimiento** de suscriptores
+- **Métricas de engagement** avanzadas
+
+### 🎛️ Gestión Masiva de Canales
+- **Configuración multi-canal** con tags y categorías
+- **Monitoreo simultáneo** de múltiples canales
+- **Exportación/importación** de configuraciones
+- **Panel de control unificado**
+
+### 📈 Análisis Mejorado
+- **Tracking de rendimiento** por canal
+- **Historial de estadísticas** con gráficos
+- **Detección de tendencias** automática
+- **Alertas de anomalías**
+
+## 📁 Estructura del Proyecto Actualizada
+
+```
+telegram-ai-publisher/
+├── services/
+│   ├── enhanced_telegram_client.py    # Cliente mejorado con caché
+│   ├── telegram_monitor.py            # Monitoreo en tiempo real
+│   ├── telegram_metrics.py            # Métricas mejoradas
+│   └── ...
+├── gui/
+│   ├── enhanced_channel_tab.py        # Nueva pestaña de gestión
+│   ├── dashboard.py                   # Dashboard mejorado
+│   └── ...
+├── utils/
+│   ├── channel_config.py              # Gestor de configuraciones
+│   └── ...
+├── demo_enhanced_features.py          # Script de demostración
+└── requirements.txt                   # Dependencias actualizadas
+```
+
+## 🛠️ Instalación y Configuración
+
+### Requisitos Actualizados
 - Python 3.7 o superior
 - PySide6
 - SQLite

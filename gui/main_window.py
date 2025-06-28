@@ -5,6 +5,7 @@ from gui.content_tab import ContentTab
 from gui.ai_tab import AITab
 from gui.publish_tab import PublishTab
 from gui.metrics_tab import MetricsTab
+from gui.unified_admin_channels_tab import UnifiedAdminChannelsTab
 
 class MainWindow(QMainWindow):
     def __init__(self, config):
@@ -50,6 +51,21 @@ class MainWindow(QMainWindow):
             self.tabs.addTab(self.metrics_tab, "Metrics")
         except Exception as e:
             self._add_error_tab("Metrics", e)
+
+        # Unified Admin Channels Tab - Extract and manage admin channel IDs
+        try:
+            self.unified_admin_channels_tab = UnifiedAdminChannelsTab()
+            self.tabs.addTab(self.unified_admin_channels_tab, "🔧 Admin Channels Manager")
+        except Exception as e:
+            self._add_error_tab("Admin Channels Manager", e)
+
+        # Nueva pestaña: Bot de Notas de Voz
+        try:
+            from gui.voice_note_tab import VoiceNoteTab
+            self.voice_note_tab = VoiceNoteTab()
+            self.tabs.addTab(self.voice_note_tab, "Bot Voz Telegram")
+        except Exception as e:
+            self._add_error_tab("Bot Voz Telegram", e)
 
         # Si tienes señales personalizadas, conéctalas aquí si es necesario
 

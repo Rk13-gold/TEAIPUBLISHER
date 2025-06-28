@@ -15,6 +15,23 @@ from gui.file_upload_widget import FileUploadWidget
 from gui.call_to_action_widget import CallToActionWidget
 from gui.hashtag_suggester_widget import HashtagSuggesterWidget
 
+# --- Estilo global para los botones de emoji ---
+EMOJI_BTN_STYLE = """
+QPushButton {
+    background: none;
+    border: none;
+    font-size: 22px;
+    min-width: 36px;
+    min-height: 36px;
+    max-width: 36px;
+    max-height: 36px;
+    padding: 0;
+}
+QPushButton:hover {
+    background: #222;
+}
+"""
+
 class PublishTab(QWidget):
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -43,9 +60,7 @@ class PublishTab(QWidget):
 
         # Botón de emoji para título
         self.title_emoji_btn = QPushButton("🛸")
-        self.title_emoji_btn.setFixedWidth(32)
-        self.title_emoji_btn.setFont(QFont("Segoe UI Emoji", 18))
-        self.title_emoji_btn.setStyleSheet("background: none; border: none;")
+        self.title_emoji_btn.setStyleSheet(EMOJI_BTN_STYLE)
         self.title_emoji_btn.clicked.connect(self.insert_emoji_title)
         title_img_layout.addWidget(self.title_emoji_btn, 0)
 
@@ -72,9 +87,7 @@ class PublishTab(QWidget):
         buttons_row.addWidget(self.button_config_btn)
 
         self.emoji_btn = QPushButton("🛸")
-        self.emoji_btn.setFixedWidth(32)
-        self.emoji_btn.setFont(QFont("Segoe UI Emoji", 18))
-        self.emoji_btn.setStyleSheet("background: none; border: none;")
+        self.emoji_btn.setStyleSheet(EMOJI_BTN_STYLE)
         self.emoji_btn.clicked.connect(self.insert_emoji)
         buttons_row.addWidget(self.emoji_btn)
         buttons_row.addStretch(1)
@@ -113,9 +126,7 @@ class PublishTab(QWidget):
         self.cta_widget = CallToActionWidget()
         cta_row.addWidget(self.cta_widget)
         self.cta_emoji_btn = QPushButton("🛸")
-        self.cta_emoji_btn.setFixedWidth(32)
-        self.cta_emoji_btn.setFont(QFont("Segoe UI Emoji", 18))
-        self.cta_emoji_btn.setStyleSheet("background: none; border: none;")
+        self.cta_emoji_btn.setStyleSheet(EMOJI_BTN_STYLE)
         self.cta_emoji_btn.clicked.connect(self.insert_emoji_cta)
         cta_row.addWidget(self.cta_emoji_btn)
         right_side.addLayout(cta_row)
@@ -306,19 +317,19 @@ class PublishTab(QWidget):
                     keyboard.append(row_buttons)
         if keyboard:
             reply_markup = json.dumps({"inline_keyboard": keyboard})
-    
+
         title = self.title_edit.text().strip()
         text = self.edit_area.toPlainText().strip()
         cta = self.cta_widget.get_call_to_action()
         hashtags = self.hashtag_widget.get_hashtags()
         files = self.file_upload_widget.get_files()
-    
+
         # 1. Título + contenido
         main_content = ""
         if title:
             main_content += f"<b>{title}</b>\n\n"
         main_content += text
-    
+
         # 2. Enviar presentación (caption solo si <= 1024) - SIN reply_markup
         if self.presentation_media_path and self.presentation_media_type:
             caption = main_content if len(main_content) <= 1024 else main_content[:1020] + "..."
@@ -331,7 +342,7 @@ class PublishTab(QWidget):
         else:
             # Si no hay presentación, enviar el texto principal como mensaje SIN reply_markup
             self.send_telegram_message(token, chat_id, main_content, None)
-    
+
         # 3. Archivos adicionales (sin caption, SIN reply_markup)
         for f in files:
             ext = f.lower().split('.')[-1]
@@ -343,7 +354,7 @@ class PublishTab(QWidget):
                 self.send_telegram_animation(token, chat_id, f, "", None)
             else:
                 self.send_telegram_document(token, chat_id, f, "", None)
-    
+
         # 4. CTA + hashtags (en un solo mensaje, AQUÍ SÍ reply_markup)
         cta_hashtags = ""
         if cta:
@@ -352,6 +363,7 @@ class PublishTab(QWidget):
             cta_hashtags += hashtags
         if cta_hashtags.strip():
             self.send_telegram_message(token, chat_id, cta_hashtags, reply_markup)
+
     def send_telegram_message(self, token, chat_id, text, reply_markup):
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         data = {

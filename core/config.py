@@ -11,6 +11,13 @@ class Config:
         self.telegram_token = '8033359786:AAH919qQ2iv2lYZZYuFlvb51PIgP1mNmRLY'
         self.telegram_chat_id = '-1002369802047'
         
+        # Telegram Bot API configuration for channel management
+        self.bot_token = self.telegram_token  # Use same token for bot operations
+        self.api_id = None  # Set this if you have Telegram API credentials
+        self.api_hash = None  # Set this if you have Telegram API credentials
+        self.session_name = 'telegram_session'
+        self.phone_number = None  # For user authentication if needed
+        
         # LM Studio configuration (actualizado para la versión actual)
         self.lm_studio_api_url = 'http://192.168.18.5:1234/v1/chat/completions'
         self.lm_studio_model = 'phi-3-mini-4k-instruct'  # Modelo por defecto, ajusta si usas otro

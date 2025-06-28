@@ -4,7 +4,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtCore import Qt
-from services.telegram_metrics import get_channel_info, get_last_posts
+from services.telegram_metrics import get_channel_info, get_last_posts, get_enhanced_client, batch_get_channels_info
+import asyncio
 from services.gumroad import get_gumroad_products, get_gumroad_sales
 
 class Dashboard(QWidget):
@@ -204,36 +205,109 @@ class Dashboard(QWidget):
             QMessageBox.critical(self, "Error Gumroad", str(e))
 
     def load_metrics(self):
+        """Load channel metrics with improved caching and error handling"""
         try:
-            info = get_channel_info(self.channel_username)
-            self.card_subs.value_label.setText(str(info.get("subscribers", "N/A")))
-            self.card_growth.value_label.setText("N/A")
-            self.card_engagement.value_label.setText("...")
-            self.card_last_post.value_label.setText("...")
+            # Use enhanced client with caching
+            info = get_channel_info(self.channel_username, force_refresh=False)
+            
+            if info:
+                self.card_subs.value_label.setText(str(info.get("subscribers", "N/A")))
+                self.card_growth.value_label.setText("N/A")  # Will be calculated from monitoring
+                self.card_engagement.value_label.setText("...")
+                self.card_last_post.value_label.setText("...")
 
-            # Actualiza descripción del canal
-            self.label_desc.setText(f"Descripción: {info.get('description', 'No disponible')}")
+                # Update description
+                description = info.get("about", "No description available")
+                self.label_desc.setText(f"Descripción: {description}")
+                
+                # Update channel title with ID
+                channel_id = info.get("id", "Unknown")
+                title = info.get("title", "Unknown Channel")
+                self.label_channel.setText(f"Canal: <b>{title}</b> (ID: {channel_id})")
+            else:
+                self.card_subs.value_label.setText("Error")
+                self.label_desc.setText("Descripción: No se pudo cargar la información del canal")
 
+            # Load posts with enhanced information
             posts = get_last_posts(self.channel_username, limit=5)
             self.posts_table.setRowCount(len(posts))
+            
             total_engagement = 0
+            total_views = 0
+            
             for row, post in enumerate(posts):
-                title = (post["text"] or "")[:30].replace('\n', ' ')
+                title = (post.get("text", "") or "")[:30].replace('\n', ' ')
+                date_str = str(post.get("date", ""))
+                views = post.get("views", 0) or 0
+                reactions = post.get("reactions", 0) or 0
+                replies = post.get("replies", 0) or 0
+                forwards = post.get("forwards", 0) or 0
+                media_type = post.get("media_type", "")
+                
+                # Add media indicator to title
+                if media_type:
+                    title = f"[{media_type.upper()}] {title}"
+                
                 self.posts_table.setItem(row, 0, QTableWidgetItem(title))
-                self.posts_table.setItem(row, 1, QTableWidgetItem(str(post["date"])))
-                self.posts_table.setItem(row, 2, QTableWidgetItem(str(post.get("views", ""))))
-                self.posts_table.setItem(row, 3, QTableWidgetItem(str(post.get("reactions", ""))))
-                views = post.get("views", 0) or 1
-                engagement = ((post.get("reactions", 0) + post.get("replies", 0)) / views) * 100
-                self.posts_table.setItem(row, 4, QTableWidgetItem(f"{engagement:.2f}%"))
-                total_engagement += engagement
-                self.activity_log.append(f"[{post['date']}] Post: {title} | Vistas: {post.get('views',0)} | Reacciones: {post.get('reactions',0)}")
+                self.posts_table.setItem(row, 1, QTableWidgetItem(date_str))
+                self.posts_table.setItem(row, 2, QTableWidgetItem(str(views)))
+                
+                # Enhanced reactions display
+                total_reactions = reactions + replies + forwards
+                self.posts_table.setItem(row, 3, QTableWidgetItem(f"{total_reactions} (R:{reactions}, F:{forwards})"))
+                
+                # Calculate engagement rate
+                if views > 0:
+                    engagement = (total_reactions / views) * 100
+                    self.posts_table.setItem(row, 4, QTableWidgetItem(f"{engagement:.2f}%"))
+                    total_engagement += engagement
+                else:
+                    self.posts_table.setItem(row, 4, QTableWidgetItem("0%"))
+                
+                # Safely add to total views
+                total_views += views
+                
+                # Enhanced activity log
+                self.activity_log.append(
+                    f"[{date_str}] {title} | Views: {views} | "
+                    f"Reactions: {reactions} | Replies: {replies} | Forwards: {forwards}"
+                )
+            
+            # Calculate and display metrics
             if posts:
                 avg_engagement = total_engagement / len(posts)
                 self.card_engagement.value_label.setText(f"{avg_engagement:.2f}%")
-                self.card_last_post.value_label.setText(str(posts[0]["date"]))
+                
+                # Show last post date
+                last_post_date = posts[0].get("date", "N/A")
+                self.card_last_post.value_label.setText(str(last_post_date))
+                
+                # Calculate growth estimation (basic) - with null safety
+                if len(posts) >= 2:
+                    # Safely handle None values in views
+                    recent_views = [p.get("views", 0) or 0 for p in posts[:2]]
+                    older_views = [p.get("views", 0) or 0 for p in posts[-2:]]
+                    
+                    recent_avg_views = sum(recent_views) / 2
+                    older_avg_views = sum(older_views) / 2
+                    
+                    if older_avg_views > 0:
+                        growth = ((recent_avg_views - older_avg_views) / older_avg_views) * 100
+                        self.card_growth.value_label.setText(f"{growth:+.1f}%")
             else:
                 self.card_engagement.value_label.setText("N/A")
                 self.card_last_post.value_label.setText("N/A")
+                self.card_growth.value_label.setText("N/A")
+                
         except Exception as e:
-            QMessageBox.critical(self, "Error al cargar métricas", str(e))
+            error_msg = f"Error al cargar métricas: {str(e)}"
+            QMessageBox.critical(self, "Error", error_msg)
+            
+            # Set error states
+            self.card_subs.value_label.setText("Error")
+            self.card_growth.value_label.setText("Error")
+            self.card_engagement.value_label.setText("Error")
+            self.card_last_post.value_label.setText("Error")
+            
+            # Log error
+            self.activity_log.append(f"[ERROR] {error_msg}")
