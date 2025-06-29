@@ -2,6 +2,12 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QTextEdit, QLineEdit,
     QPushButton, QMessageBox, QLabel, QFileDialog, QSizePolicy
 )
+
+# Import unified theme system
+try:
+    from gui.telegram_theme import TelegramTheme
+except ImportError:
+    TelegramTheme = None
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 import requests
@@ -35,6 +41,9 @@ QPushButton:hover {
 class PublishTab(QWidget):
     def __init__(self, config, parent=None):
         super().__init__(parent)
+        # Apply unified theme
+        if TelegramTheme:
+            TelegramTheme.apply_theme_to_widget(self)
         self.config = config
         self.setWindowTitle("Publicar en Telegram")
 

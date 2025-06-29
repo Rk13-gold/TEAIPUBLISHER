@@ -1,3 +1,10 @@
+
+# Import unified theme system
+try:
+    from gui.telegram_theme import TelegramTheme
+except ImportError:
+    TelegramTheme = None
+
 """
 Professional Admin Channels Tab - Shows all channels and groups administered by the configured bot
 """
@@ -343,6 +350,11 @@ class AdminChannelsTab(QWidget):
     """Professional tab for managing admin channels and groups"""
     
     def __init__(self, config: Config):
+
+        
+        # Apply unified theme
+        if TelegramTheme:
+            TelegramTheme.apply_widget_theme(self)
         super().__init__()
         self.config = config
         self.channels: List[AdminChannelInfo] = []
@@ -517,17 +529,7 @@ class AdminChannelsTab(QWidget):
         # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid #bdc3c7;
-                border-radius: 5px;
-                text-align: center;
-            }
-            QProgressBar::chunk {
-                background-color: #3498db;
-                border-radius: 3px;
-            }
-        """)
+        self.progress_bar.setStyleSheet(TelegramTheme.get_progress_bar_stylesheet() if TelegramTheme else "QProgressBar { border: 1px solid #2AABEE; border-radius: 6px; text-align: center; }")
         main_layout.addWidget(self.progress_bar)
         
         # Status label
@@ -558,23 +560,7 @@ class AdminChannelsTab(QWidget):
         
         self.channels_table.setAlternatingRowColors(True)
         self.channels_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.channels_table.setStyleSheet("""
-            QTableWidget {
-                gridline-color: #ecf0f1;
-                background-color: white;
-                alternate-background-color: #f8f9fa;
-            }
-            QTableWidget::item {
-                padding: 8px;
-            }
-            QHeaderView::section {
-                background-color: #34495e;
-                color: white;
-                padding: 10px;
-                font-weight: bold;
-                border: none;
-            }
-        """)
+        self.channels_table.setStyleSheet(TelegramTheme.get_table_stylesheet() if TelegramTheme else "")
         
         content_splitter.addWidget(self.channels_table)
         
@@ -714,18 +700,7 @@ class AdminChannelsTab(QWidget):
             
             # Actions
             actions_btn = QPushButton("Details")
-            actions_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #9b59b6;
-                    color: white;
-                    border: none;
-                    padding: 4px 8px;
-                    border-radius: 3px;
-                }
-                QPushButton:hover {
-                    background-color: #8e44ad;
-                }
-            """)
+            TelegramTheme.apply_button_theme(actions_btn, "primary") if TelegramTheme else actions_btn.setStyleSheet("background-color: #2AABEE; color: white; padding: 6px; border-radius: 4px;")
             actions_btn.clicked.connect(lambda checked, ch=channel: self.show_channel_details(ch))
             self.channels_table.setCellWidget(row, 7, actions_btn)
     
@@ -843,7 +818,7 @@ Public: {total_channels - private_count}
         if not self.config.bot_token:
             QMessageBox.warning(self, "No Bot Token", "Bot token is not configured in config.py")
             self.bot_status_label.setText("Bot Status: ❌ No token configured")
-            self.bot_status_label.setStyleSheet("color: #e74c3c;")
+            self.bot_status_label.setStyleSheet(TelegramTheme.get_error_label_style() if TelegramTheme else "color: #F44336; font-weight: bold;")
             return
         
         try:
@@ -854,7 +829,7 @@ Public: {total_channels - private_count}
                 bot_username = bot_info.get('username', 'Unknown')
                 
                 self.bot_status_label.setText(f"Bot Status: ✅ Connected (@{bot_username} - {bot_name})")
-                self.bot_status_label.setStyleSheet("color: #27ae60;")
+                self.bot_status_label.setStyleSheet(TelegramTheme.get_success_label_style() if TelegramTheme else "color: #4CAF50; font-weight: bold;")
                 
                 QMessageBox.information(
                     self, 
@@ -863,12 +838,12 @@ Public: {total_channels - private_count}
                 )
             else:
                 self.bot_status_label.setText("Bot Status: ❌ Connection failed")
-                self.bot_status_label.setStyleSheet("color: #e74c3c;")
+                self.bot_status_label.setStyleSheet(TelegramTheme.get_error_label_style() if TelegramTheme else "color: #F44336; font-weight: bold;")
                 QMessageBox.warning(self, "Connection Failed", "Failed to connect to bot. Check your token.")
                 
         except Exception as e:
             self.bot_status_label.setText("Bot Status: ❌ Error")
-            self.bot_status_label.setStyleSheet("color: #e74c3c;")
+            self.bot_status_label.setStyleSheet(TelegramTheme.get_error_label_style() if TelegramTheme else "color: #F44336; font-weight: bold;")
             QMessageBox.critical(self, "Bot Error", f"Error testing bot connection: {str(e)}")
     
     @Slot()

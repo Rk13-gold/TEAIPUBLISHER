@@ -5,12 +5,19 @@ from gui.content_tab import ContentTab
 from gui.ai_tab import AITab
 from gui.publish_tab import PublishTab
 from gui.metrics_tab import MetricsTab
-from gui.unified_admin_channels_tab import UnifiedAdminChannelsTab
+from gui.simple_channel_tab import SimpleChannelTab
+from gui.simple_admin_channels_tab import SimpleAdminChannelsTab
 
 class MainWindow(QMainWindow):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        self
+        # Apply unified theme to main window
+        # (Asegúrate de que TelegramTheme y app estén definidos si usas esto)
+        # if hasattr(app, "instance") and app.instance():
+        #     TelegramTheme.apply_application_theme(app.instance())
+
         self.setWindowTitle("Telegram AI Publisher")
         self.setGeometry(100, 100, 1200, 800)
         self.setWindowIcon(QIcon("assets/icons/app_icon.svg"))
@@ -52,12 +59,19 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._add_error_tab("Metrics", e)
 
-        # Unified Admin Channels Tab - Extract and manage admin channel IDs
+        # Simple Admin Channels Tab (with default theme)
         try:
-            self.unified_admin_channels_tab = UnifiedAdminChannelsTab()
-            self.tabs.addTab(self.unified_admin_channels_tab, "🔧 Admin Channels Manager")
+            self.admin_channels_tab = SimpleAdminChannelsTab(self.config)
+            self.tabs.addTab(self.admin_channels_tab, "🤖 Admin Channels")
         except Exception as e:
-            self._add_error_tab("Admin Channels Manager", e)
+            self._add_error_tab("Admin Channels", e)
+
+        # Enhanced Channel Manager Tab (Simplified version)
+        try:
+            self.enhanced_channel_tab = SimpleChannelTab()
+            self.tabs.addTab(self.enhanced_channel_tab, "Channel Manager")
+        except Exception as e:
+            self._add_error_tab("Channel Manager", e)
 
         # Nueva pestaña: Bot de Notas de Voz
         try:

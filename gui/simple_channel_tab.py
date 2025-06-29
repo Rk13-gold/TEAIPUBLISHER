@@ -1,3 +1,10 @@
+
+# Import unified theme system
+try:
+    from gui.telegram_theme_simple import TelegramThemeSimple as TelegramTheme
+except ImportError:
+    TelegramTheme = None
+
 """
 Simplified Channel Manager Tab for testing
 """
@@ -16,6 +23,11 @@ class SimpleChannelTab(QWidget):
     """Simplified channel management tab for testing"""
     
     def __init__(self):
+
+        
+        # Apply unified theme
+        if TelegramTheme:
+            TelegramTheme.apply_simple_theme(self)
         super().__init__()
         self.monitored_channels = set()
         self.init_ui()

@@ -1,4 +1,11 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+
+# Import unified theme system
+try:
+    from gui.telegram_theme import TelegramTheme
+except ImportError:
+    TelegramTheme = None
+
                                QPushButton, QTextEdit, QFileDialog, QProgressBar,
                                QMessageBox, QGroupBox, QFormLayout, QLineEdit,
                                QTabWidget, QScrollArea, QGridLayout, QComboBox,
@@ -93,6 +100,11 @@ class MediaUploadWorker(QThread):
 
 class VoiceNoteTab(QWidget):
     def __init__(self):
+
+        
+        # Apply unified theme
+        if TelegramTheme:
+            TelegramTheme.apply_theme_to_widget(self)
         super().__init__()
         self.config = Config()
         self.selected_files = {"voice": None, "photo": None, "video": None}

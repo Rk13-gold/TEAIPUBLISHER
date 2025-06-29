@@ -3,6 +3,12 @@ from PySide6.QtWidgets import (
     QPushButton, QProgressBar, QMessageBox, QSizePolicy, QLabel, QToolButton, QDialog, QDialogButtonBox,
     QFileDialog
 )
+
+# Import unified theme system
+try:
+    from gui.telegram_theme import TelegramTheme
+except ImportError:
+    TelegramTheme = None
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIntValidator, QFont
 import requests
@@ -68,6 +74,9 @@ class AIConfigDialog(QDialog):
 class AITab(QWidget):
     def __init__(self, config):
         super().__init__()
+        # Apply unified theme
+        if TelegramTheme:
+            TelegramTheme.apply_theme_to_widget(self)
         self.config = config
         self.setWindowTitle("Generador IA para Telegram")
 

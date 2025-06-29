@@ -1,3 +1,10 @@
+
+# Import unified theme system
+try:
+    from gui.telegram_theme_simple import TelegramThemeSimple as TelegramTheme
+except ImportError:
+    TelegramTheme = None
+
 """
 Enhanced Channel Manager Tab with real-time monitoring and batch operations
 """
@@ -143,6 +150,11 @@ class EnhancedChannelManagerTab(QWidget):
     """Enhanced tab for managing multiple Telegram channels with real-time monitoring"""
     
     def __init__(self):
+
+        
+        # Apply unified theme
+        if TelegramTheme:
+            TelegramTheme.apply_simple_theme(self)
         super().__init__()
         self.monitored_channels = set()
         self.monitoring_active = False

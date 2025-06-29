@@ -3,9 +3,19 @@ from PySide6.QtCore import Qt
 from core.database import Database
 from services.metrics import MetricsService
 
+
+# Import unified theme system
+try:
+    from gui.telegram_theme import TelegramTheme
+except ImportError:
+    TelegramTheme = None
+
 class MetricsTab(QWidget):
     def __init__(self):
         super().__init__()
+        # Apply unified theme
+        if TelegramTheme:
+            TelegramTheme.apply_theme_to_widget(self)
         self.setWindowTitle("Métricas y Estadísticas")
         self.layout = QVBoxLayout(self)
 

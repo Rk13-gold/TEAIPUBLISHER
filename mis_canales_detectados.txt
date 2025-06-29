@@ -1,4 +1,0 @@
-# Admin Channel IDs extracted by Telegram AI Publisher
-# Total channels: 1
-
--1002251948196

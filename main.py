@@ -4,7 +4,8 @@ from gui.main_window import MainWindow
 from core.config import Config
 from core.logger import setup_logging
 from core.database import Database
-from theme import apply_telegram_compact_theme as apply_telegram_theme
+
+from gui.telegram_theme import TelegramTheme
 
 
 def main():
@@ -15,7 +16,7 @@ def main():
     db.create_tables()
     
     app = QApplication(sys.argv)
-    apply_telegram_theme(app)  # Apply global theme
+    TelegramTheme.apply_application_theme(app)  # Apply global theme
     main_window = MainWindow(config)
     main_window.show()
 

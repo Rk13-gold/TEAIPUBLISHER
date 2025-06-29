@@ -1,3 +1,10 @@
+
+# Import unified theme system
+try:
+    from gui.telegram_theme_simple import TelegramThemeSimple as TelegramTheme
+except ImportError:
+    TelegramTheme = None
+
 """
 Simple Admin Channels Tab - Uses default program theme
 """
@@ -106,6 +113,11 @@ class SimpleAdminChannelsTab(QWidget):
     """Simple Admin Channels Tab with default theme"""
     
     def __init__(self, config: Config):
+
+        
+        # Apply unified theme
+        if TelegramTheme:
+            TelegramTheme.apply_simple_theme(self)
         super().__init__()
         self.config = config
         self.channels = []
