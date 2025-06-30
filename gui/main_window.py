@@ -35,11 +35,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._add_error_tab("Dashboard", e)
 
-        try:
-            self.content_tab = ContentTab()
-            self.tabs.addTab(self.content_tab, "Content")
-        except Exception as e:
-            self._add_error_tab("Content", e)
+
 
         try:
             self.ai_tab = AITab(self.config)
@@ -73,13 +69,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._add_error_tab("Channel Manager", e)
 
-        # Nueva pestaña: Bot de Notas de Voz
-        try:
-            from gui.voice_note_tab import VoiceNoteTab
-            self.voice_note_tab = VoiceNoteTab()
-            self.tabs.addTab(self.voice_note_tab, "Bot Voz Telegram")
-        except Exception as e:
-            self._add_error_tab("Bot Voz Telegram", e)
+
 
         # Si tienes señales personalizadas, conéctalas aquí si es necesario
 
