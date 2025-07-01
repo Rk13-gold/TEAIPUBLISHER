@@ -564,15 +564,19 @@ class PublishTab(QWidget):
         self.update_preview()
 
     def setup_modern_ui(self):
-        """Configurar UI con tema nativo de Windows 11"""
+        """Configurar UI con 3 secciones iguales - tema nativo de Windows 11
+        
+        DISEÑO: [CREACIÓN] [PREVIEW] [HERRAMIENTAS]
+        Cada sección ocupa exactamente 1/3 del ancho disponible
+        """
         # Sin estilos personalizados - usar tema nativo
         
-        # Configurar el layout principal
+        # Configurar el layout principal con 3 columnas iguales
         main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(3, 3, 3, 3)  # Márgenes mínimos
+        main_layout.setSpacing(3)  # Espaciado mínimo para optimizar espacio
 
-        # ========== COLUMNA IZQUIERDA: CREACIÓN ==========
+        # ========== SECCIÓN 1: CREACIÓN DE CONTENIDO ==========
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -580,57 +584,71 @@ class PublishTab(QWidget):
         
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
-        left_layout.setSpacing(8)  # Reducido de 20 a 8
+        left_layout.setContentsMargins(3, 3, 3, 3)
+        left_layout.setSpacing(3)
 
-        # Selector de tipo de post con estilo viral
+        # Componentes de la sección izquierda
         self.setup_viral_post_selector(left_layout)
-        
-        # Título y presentación con efectos visuales
         self.setup_enhanced_title_section(left_layout)
-        
-        # Área de edición principal mejorada
         self.setup_enhanced_editing_section(left_layout)
-        
-        # Progreso y envío con estilo moderno
         self.setup_modern_progress_section(left_layout)
 
         left_scroll.setWidget(left_widget)
-        left_scroll.setMinimumWidth(380)  # Aumentado de 260 a 380 para editor más grande
-        left_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        main_layout.addWidget(left_scroll, 3)  # Aumentado de 1 a 3 para más espacio al editor
+        
+        # ========== SECCIÓN 2: VISTA PREVIA ==========
+        center_scroll = QScrollArea()
+        center_scroll.setWidgetResizable(True)
+        center_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        center_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        center_widget = QWidget()
+        center_layout = QVBoxLayout(center_widget)
+        center_layout.setContentsMargins(3, 3, 3, 3)
+        center_layout.setSpacing(3)
 
-        # ========== COLUMNA CENTRO: PREVIEW ==========
-        self.setup_enhanced_preview_section(main_layout)
+        # Configurar preview
+        self.setup_enhanced_preview_section_redesigned(center_layout)
+        
+        center_scroll.setWidget(center_widget)
 
-        # ========== COLUMNA DERECHA: COMPLEMENTOS ==========
+        # ========== SECCIÓN 3: HERRAMIENTAS Y EXTRAS ==========
         right_scroll = QScrollArea()
         right_scroll.setWidgetResizable(True)
         right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        right_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
-        right_layout.setSpacing(8)  # Reducido de 20 a 8
+        right_layout.setContentsMargins(3, 3, 3, 3)
+        right_layout.setSpacing(3)
 
-        # Archivos adicionales mejorados
+        # Componentes de la sección derecha
+        # Título de la sección
+        section_title = QLabel("🔧 HERRAMIENTAS Y EXTRAS")
+        section_title.setAlignment(Qt.AlignCenter)
+        right_layout.addWidget(section_title)
+        
         self.file_upload_widget = FileUploadWidget()
         right_layout.addWidget(self.file_upload_widget)
-
-        # Notas de Voz Premium mejoradas
         self.setup_enhanced_voice_section(right_layout)
-
-        # CTA y Hashtags con estilo viral
         self.setup_viral_cta_section(right_layout)
 
         right_scroll.setWidget(right_widget)
-        right_scroll.setMinimumWidth(200)  # Reducido de 220 a 200 para dar más espacio al editor
-        right_scroll.setMaximumWidth(250)  # Limitar ancho máximo
-        right_scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        main_layout.addWidget(right_scroll, 1)  # Mantener proporción mínima
+
+        # ========== AGREGAR LAS 3 SECCIONES CON PROPORCIONES IGUALES ==========
+        main_layout.addWidget(left_scroll, 1)    # Proporción 1:1:1
+        main_layout.addWidget(center_scroll, 1)  # Proporción 1:1:1  
+        main_layout.addWidget(right_scroll, 1)   # Proporción 1:1:1
 
         self.setLayout(main_layout)
 
     def setup_viral_post_selector(self, layout):
-        """Selector de tipo de post con diseño viral"""
+        """Selector de tipo de post con diseño optimizado para 3 columnas"""
+        # Título de la sección
+        section_title = QLabel("📝 CREACIÓN DE CONTENIDO")
+        section_title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(section_title)
+        
         type_group = QGroupBox("🚀 Tipo de Post Viral")
         type_group.setObjectName("viral_group")
         type_layout = QVBoxLayout()
@@ -711,7 +729,7 @@ class PublishTab(QWidget):
         edit_group = QGroupBox("✍️ Contenido Persuasivo")
         edit_layout = QVBoxLayout()
         
-        # Área de texto mejorada y más grande
+        # Área de texto optimizada para 3 columnas
         self.edit_area = QTextEdit()
         self.edit_area.setPlaceholderText(
             "💡 Escribe contenido que genere engagement:\n\n"
@@ -721,9 +739,9 @@ class PublishTab(QWidget):
             "• Mantén un tono conversacional\n\n"
             "¡Haz que cada palabra cuente! 🚀"
         )
-        # Área de edición más grande
-        self.edit_area.setMinimumHeight(250)
-        self.edit_area.setMaximumHeight(400)
+        # Área de edición más compacta para layout de 3 columnas
+        self.edit_area.setMinimumHeight(200)  # Reducido de 250 a 200
+        self.edit_area.setMaximumHeight(300)  # Reducido de 400 a 300
         
         # Sin estilos personalizados - usar tema nativo de Windows 11
         
@@ -1374,51 +1392,32 @@ class PublishTab(QWidget):
             self.telegram_buttons = dlg.get_values()
             self.update_preview()
 
-    def setup_enhanced_preview_section(self, main_layout):
-        """Configurar sección de preview mejorada - Simulación de móvil centrado"""
+    def setup_enhanced_preview_section_redesigned(self, layout):
+        """Configurar sección de preview rediseñada para 3 columnas iguales"""
         try:
-            # ========== COLUMNA CENTRO: PREVIEW MÓVIL ==========
-            preview_container = QFrame()
-            preview_layout = QVBoxLayout(preview_container)
-            preview_layout.setContentsMargins(16, 16, 16, 16)
-            preview_layout.setSpacing(12)
+            # Título de la sección
+            section_title = QLabel("📱 VISTA PREVIA")
+            section_title.setAlignment(Qt.AlignCenter)
+            layout.addWidget(section_title)
             
-            # Título de preview
-            preview_title = QLabel("📱 Vista Previa - Móvil")
-            preview_title.setAlignment(Qt.AlignCenter)
-            preview_layout.addWidget(preview_title)
+            # Subtítulo informativo
+            preview_subtitle = QLabel("Vista Previa del Post")
+            preview_subtitle.setAlignment(Qt.AlignCenter)
+            layout.addWidget(preview_subtitle)
             
-            # Contenedor para el móvil
-            mobile_frame = QFrame()
-            mobile_frame.setFixedWidth(320)  # Ancho de móvil estándar
-            
-            mobile_layout = QVBoxLayout(mobile_frame)
-            mobile_layout.setContentsMargins(4, 12, 4, 12)  # Simular bordes de móvil
-            
-            # Widget de preview del post
+            # Widget de preview del post (sin marco móvil, más simple)
             self.post_preview = PostPreviewWidget()
-            self.post_preview.setFixedWidth(300)
-            mobile_layout.addWidget(self.post_preview)
+            self.post_preview.setMinimumHeight(300)  # Altura mínima
+            layout.addWidget(self.post_preview, 1)  # Se expande para llenar el espacio
             
-            # Centrar el móvil en el contenedor
-            center_layout = QHBoxLayout()
-            center_layout.addStretch()
-            center_layout.addWidget(mobile_frame)
-            center_layout.addStretch()
-            
-            preview_layout.addLayout(center_layout, 1)
-            
-            # Añadir espaciador inferior
-            preview_layout.addStretch()
-            
-            # Configurar el contenedor principal
-            preview_container.setMinimumWidth(360)
-            preview_container.setMaximumWidth(400)
-            preview_container.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-            main_layout.addWidget(preview_container, 1)  # Proporción fija para preview
+            # Información adicional del preview
+            info_label = QLabel("Vista previa en tiempo real de cómo se verá tu post en Telegram")
+            info_label.setWordWrap(True)
+            info_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(info_label)
             
         except Exception as e:
-            print(f"Error configurando preview: {e}")
+            print(f"Error configurando preview rediseñado: {e}")
 
     def setup_enhanced_voice_section(self, layout):
         """Configurar sección de notas de voz mejorada"""
@@ -1465,7 +1464,7 @@ class PublishTab(QWidget):
             desc_label = QLabel("Descripción:")
             self.voice_desc_edit = QTextEdit()
             self.voice_desc_edit.setPlaceholderText("Descripción premium...")
-            self.voice_desc_edit.setMaximumHeight(50)  # Reducido de 80 a 50
+            self.voice_desc_edit.setMaximumHeight(40)  # Reducido de 50 a 40 para layout de 3 columnas
             desc_layout.addWidget(desc_label)
             desc_layout.addWidget(self.voice_desc_edit)
             voice_layout.addLayout(desc_layout)
