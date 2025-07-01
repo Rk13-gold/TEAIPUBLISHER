@@ -1,9 +1,14 @@
-
 # Import unified theme system
 try:
     from gui.telegram_theme_simple import TelegramThemeSimple as TelegramTheme
 except ImportError:
     TelegramTheme = None
+
+# Import modern styles
+try:
+    from gui.modern_styles import ModernStyles
+except ImportError:
+    ModernStyles = None
 
 """
 Simple Admin Channels Tab - Uses default program theme

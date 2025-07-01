@@ -5,6 +5,12 @@ try:
 except ImportError:
     TelegramTheme = None
 
+# Import modern styles
+try:
+    from gui.modern_styles import ModernStyles
+except ImportError:
+    ModernStyles = None
+
 """
 Simplified Channel Manager Tab for testing
 """
@@ -23,28 +29,31 @@ class SimpleChannelTab(QWidget):
     """Simplified channel management tab for testing"""
     
     def __init__(self):
-
-        
-        # Apply unified theme
-        if TelegramTheme:
-            TelegramTheme.apply_simple_theme(self)
         super().__init__()
+        
+        # Aplicar estilos compactos
+        if ModernStyles:
+            self.setStyleSheet(ModernStyles.get_compact_complete_stylesheet())
+            
         self.monitored_channels = set()
         self.init_ui()
         
     def init_ui(self):
         """Initialize the user interface"""
         main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(8)  # Espaciado reducido
+        main_layout.setContentsMargins(8, 8, 8, 8)  # Márgenes reducidos
         
         # Title
         title_label = QLabel("Enhanced Channel Manager (Simplified)")
-        title_label.setFont(QFont("Arial", 16, QFont.Bold))
+        title_label.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))  # Fuente más pequeña
         title_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(title_label)
         
         # Search section
         search_group = QGroupBox("Channel Search")
         search_layout = QVBoxLayout(search_group)
+        search_layout.setSpacing(6)  # Espaciado reducido
         
         # Search input
         search_input_layout = QHBoxLayout()

@@ -3,21 +3,30 @@ from PySide6.QtCore import Qt
 from core.database import Database
 from services.metrics import MetricsService
 
-
 # Import unified theme system
 try:
     from gui.telegram_theme import TelegramTheme
 except ImportError:
     TelegramTheme = None
 
+# Import modern styles
+try:
+    from gui.modern_styles import ModernStyles
+except ImportError:
+    ModernStyles = None
+
 class MetricsTab(QWidget):
     def __init__(self):
         super().__init__()
-        # Apply unified theme
-        if TelegramTheme:
-            TelegramTheme.apply_theme_to_widget(self)
+        
+        # Aplicar estilos compactos
+        if ModernStyles:
+            self.setStyleSheet(ModernStyles.get_compact_complete_stylesheet())
+            
         self.setWindowTitle("Métricas y Estadísticas")
         self.layout = QVBoxLayout(self)
+        self.layout.setSpacing(8)  # Espaciado reducido
+        self.layout.setContentsMargins(8, 8, 8, 8)  # Márgenes reducidos
 
         self.label = QLabel("Visualización de Métricas")
         self.label.setAlignment(Qt.AlignCenter)

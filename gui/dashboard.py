@@ -8,6 +8,12 @@ from services.telegram_metrics import get_channel_info, get_last_posts, get_enha
 import asyncio
 from services.gumroad import get_gumroad_products, get_gumroad_sales
 
+# Import modern styles
+try:
+    from gui.modern_styles import ModernStyles
+except ImportError:
+    ModernStyles = None
+
 class Dashboard(QWidget):
     def __init__(self, config):
         super().__init__()
@@ -15,18 +21,23 @@ class Dashboard(QWidget):
         self.channel_username = getattr(config, "telegram_channel_username", "t.me/audioblaze")
         self.gumroad_token = getattr(config, "gumroad_token", "mpA3A42htA7Xu8H-oiu4VDYbIUbYGNEeullkQYQJkCU")
         self.setAutoFillBackground(True)
+        
+        # Aplicar estilos compactos
+        if ModernStyles:
+            self.setStyleSheet(ModernStyles.get_compact_complete_stylesheet())
+            
         self.init_ui()
         self.load_metrics()
         self.load_gumroad_data()
 
     def init_ui(self):
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setSpacing(18)
-        self.main_layout.setContentsMargins(16, 16, 16, 16)
+        self.main_layout.setSpacing(8)  # Reducido de 18 a 8
+        self.main_layout.setContentsMargins(8, 8, 8, 8)  # Reducido de 16 a 8
 
         # --- Métricas principales (tarjetas) ---
         self.metrics_layout = QHBoxLayout()
-        self.metrics_layout.setSpacing(16)
+        self.metrics_layout.setSpacing(8)  # Reducido de 16 a 8
         self.card_subs = self.metric_card("👥", "Suscriptores", "...")
         self.card_growth = self.metric_card("📈", "Crecimiento", "...")
         self.card_engagement = self.metric_card("💬", "Engagement", "...")
@@ -41,7 +52,7 @@ class Dashboard(QWidget):
         channel_group = QGroupBox("Información del canal")
         channel_layout = QVBoxLayout()
         self.label_channel = QLabel(f"Canal: <b>{self.channel_username}</b>")
-        self.label_channel.setFont(QFont("Poppins", 13, QFont.Bold))
+        self.label_channel.setFont(QFont("Segoe UI", 11, QFont.Weight.DemiBold))  # Fuente más pequeña
         self.label_channel.setTextFormat(Qt.RichText)
         self.label_desc = QLabel("Descripción: ...")
         self.label_desc.setWordWrap(True)
@@ -83,19 +94,28 @@ class Dashboard(QWidget):
         card = QFrame()
         card.setFrameShape(QFrame.StyledPanel)
         layout = QVBoxLayout(card)
+        layout.setSpacing(4)  # Reducido espaciado
+        layout.setContentsMargins(8, 6, 8, 6)  # Márgenes más pequeños
+        
         icon_label = QLabel(icon)
-        icon_label.setFont(QFont("Arial", 28))
+        icon_label.setFont(QFont("Segoe UI", 18))  # Reducido de 28 a 18
         icon_label.setAlignment(Qt.AlignCenter)
+        
         title_label = QLabel(title)
-        title_label.setFont(QFont("Poppins", 11, QFont.Bold))
+        title_label.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))  # Reducido de 11 a 9
         title_label.setAlignment(Qt.AlignCenter)
+        
         value_label = QLabel(value)
-        value_label.setFont(QFont("Poppins", 16, QFont.Bold))
+        value_label.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))  # Reducido de 16 a 12
         value_label.setAlignment(Qt.AlignCenter)
+        
         layout.addWidget(icon_label)
         layout.addWidget(title_label)
         layout.addWidget(value_label)
         card.value_label = value_label  # Para actualizar luego
+        
+        # Aplicar tamaño compacto
+        card.setFixedHeight(80)  # Altura fija más pequeña
         return card
 
     def activity_tab(self):

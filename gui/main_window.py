@@ -8,18 +8,23 @@ from gui.metrics_tab import MetricsTab
 from gui.simple_channel_tab import SimpleChannelTab
 from gui.simple_admin_channels_tab import SimpleAdminChannelsTab
 
+# Import modern styles
+try:
+    from gui.modern_styles import ModernStyles
+except ImportError:
+    ModernStyles = None
+
 class MainWindow(QMainWindow):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self
-        # Apply unified theme to main window
-        # (Asegúrate de que TelegramTheme y app estén definidos si usas esto)
-        # if hasattr(app, "instance") and app.instance():
-        #     TelegramTheme.apply_application_theme(app.instance())
-
+        
+        # Aplicar estilo compacto a toda la aplicación
+        if ModernStyles:
+            self.setStyleSheet(ModernStyles.get_compact_complete_stylesheet())
+        
         self.setWindowTitle("Telegram AI Publisher")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(100, 100, 1000, 650)  # Reducido de 1200x800 a 1000x650
         self.setWindowIcon(QIcon("assets/icons/app_icon.svg"))
         self._init_ui()
         self._create_menu()

@@ -5,42 +5,75 @@ from PySide6.QtCore import Qt
 class PostPreviewWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumWidth(350)
+        self.setFixedWidth(300)  # Ancho fijo de móvil
+        self.setMinimumHeight(400)  # Altura mínima
         self.setStyleSheet("""
             QWidget#PreviewFrame {
-                background: #23272b;
-                border-radius: 5px;
-                border: 1px solid #444;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2a2d3a,
+                    stop:1 #1e1f2b);
+                border-radius: 12px;
+                border: 2px solid rgba(255,255,255,0.1);
+                margin: 4px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
             }
             QLabel#ImageLabel {
-                border-top-left-radius: 5px;
-                border-top-right-radius: 5px;
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
                 background: #181c20;
+                min-height: 100px;
+                max-height: 200px;
             }
             QTextEdit#TextPreview {
-                background: #23272b;
-                color: #e0e0e0;
+                background: transparent;
+                color: #ffffff;
                 border: none;
-                font-size: 15px;
-                padding: 8px 12px 8px 12px;
+                font-size: 13px;
+                padding: 12px 16px;
+                line-height: 1.5;
+                font-family: 'Segoe UI', Arial, sans-serif;
             }
             QFrame#ButtonBox {
-                background: #23272b;
-                border-top: 1px solid #444;
-                border-bottom-left-radius: 12px;
-                border-bottom-right-radius: 12px;
-                padding: 8px 8px 8px 8px;
+                background: rgba(255,255,255,0.05);
+                border-top: 1px solid rgba(255,255,255,0.1);
+                border-bottom-left-radius: 10px;
+                border-bottom-right-radius: 10px;
+                padding: 8px;
             }
             QPushButton {
-                background: #0078d7;
+                background: #0088cc;
                 color: #fff;
                 border-radius: 6px;
-                padding: 6px 18px;
-                font-weight: bold;
+                padding: 8px 16px;
+                font-weight: 500;
+                font-size: 11px;
                 margin: 2px;
+                min-height: 24px;
+                border: none;
             }
             QPushButton:hover {
-                background: #005fa3;
+                background: #0099dd;
+            }
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+            QScrollBar:vertical {
+                background: rgba(255,255,255,0.1);
+                width: 6px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255,255,255,0.3);
+                border-radius: 3px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #0088cc;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
             }
         """)
 
@@ -58,8 +91,8 @@ class PostPreviewWidget(QWidget):
         self.image_label = QLabel()
         self.image_label.setObjectName("ImageLabel")
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setMinimumHeight(120)
-        self.image_label.setMaximumHeight(220)
+        self.image_label.setMinimumHeight(80)  # Reducido de 120 a 80
+        self.image_label.setMaximumHeight(160)  # Reducido de 220 a 160
         self.image_label.setScaledContents(True)
         frame_layout.addWidget(self.image_label)
 
