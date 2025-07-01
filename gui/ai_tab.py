@@ -9,13 +9,6 @@ try:
     from gui.telegram_theme import TelegramTheme
 except ImportError:
     TelegramTheme = None
-
-# Import modern styles
-try:
-    from gui.modern_styles import ModernStyles
-except ImportError:
-    ModernStyles = None
-
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIntValidator, QFont
 import requests
@@ -81,11 +74,9 @@ class AIConfigDialog(QDialog):
 class AITab(QWidget):
     def __init__(self, config):
         super().__init__()
-        
-        # Aplicar estilos compactos
-        if ModernStyles:
-            self.setStyleSheet(ModernStyles.get_compact_complete_stylesheet())
-        
+        # Apply unified theme
+        if TelegramTheme:
+            TelegramTheme.apply_theme_to_widget(self)
         self.config = config
         self.setWindowTitle("Generador IA para Telegram")
 
@@ -98,18 +89,17 @@ class AITab(QWidget):
         self.telegram_buttons = [[]]
 
         main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(8, 8, 8, 8)  # Reducido de 12 a 8
-        main_layout.setSpacing(8)  # Reducido de 16 a 8
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(16)
 
         # --------- LADO IZQUIERDO: CHAT IA ---------
         chat_group = QGroupBox("Chat IA (orientado a Telegram)")
         chat_layout = QVBoxLayout()
-        chat_layout.setSpacing(6)  # Reducido de 8 a 6
+        chat_layout.setSpacing(8)
 
         self.chat_history = QTextEdit()
         self.chat_history.setReadOnly(True)
         self.chat_history.setPlaceholderText("🔥Hola sebas...✌️comencemos a crear post psicologicos y virales🧩")
-        self.chat_history.setMaximumHeight(200)  # Añadido límite de altura
         chat_layout.addWidget(self.chat_history)
 
         input_layout = QHBoxLayout()
