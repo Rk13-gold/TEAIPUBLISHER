@@ -16,8 +16,9 @@ class Dashboard(QWidget):
         self.gumroad_token = getattr(config, "gumroad_token", "mpA3A42htA7Xu8H-oiu4VDYbIUbYGNEeullkQYQJkCU")
         self.setAutoFillBackground(True)
         self.init_ui()
-        self.load_metrics()
-        self.load_gumroad_data()
+        # Temporarily commented out to prevent API errors on startup
+        # self.load_metrics()
+        # self.load_gumroad_data()
 
     def init_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -36,6 +37,15 @@ class Dashboard(QWidget):
         self.metrics_layout.addWidget(self.card_engagement)
         self.metrics_layout.addWidget(self.card_last_post)
         self.main_layout.addLayout(self.metrics_layout)
+
+        # --- Botón de carga manual ---
+        refresh_layout = QHBoxLayout()
+        self.manual_refresh_btn = QPushButton("🔄 Cargar métricas del canal")
+        self.manual_refresh_btn.clicked.connect(self.load_metrics)
+        refresh_layout.addStretch()
+        refresh_layout.addWidget(self.manual_refresh_btn)
+        refresh_layout.addStretch()
+        self.main_layout.addLayout(refresh_layout)
 
         # --- Información del canal ---
         channel_group = QGroupBox("Información del canal")
@@ -207,6 +217,12 @@ class Dashboard(QWidget):
     def load_metrics(self):
         """Load channel metrics with improved caching and error handling"""
         try:
+            # Show loading message
+            self.card_subs.value_label.setText("Loading...")
+            self.card_growth.value_label.setText("Loading...")
+            self.card_engagement.value_label.setText("Loading...")
+            self.card_last_post.value_label.setText("Loading...")
+            
             # Use enhanced client with caching
             info = get_channel_info(self.channel_username, force_refresh=False)
             

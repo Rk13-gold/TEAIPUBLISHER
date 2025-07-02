@@ -1,10 +1,4 @@
 
-# Import unified theme system
-try:
-    from gui.telegram_theme import TelegramTheme
-except ImportError:
-    TelegramTheme = None
-
 """
 Professional Admin Channels Tab - Shows all channels and groups administered by the configured bot
 """

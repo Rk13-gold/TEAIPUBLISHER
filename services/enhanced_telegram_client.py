@@ -327,7 +327,12 @@ class EnhancedTelegramClient:
             return messages
             
         except Exception as e:
-            logger.error(f"Error getting recent messages: {e}")
+            # Check if this is the common bot restriction error
+            if "GetHistoryRequest" in str(e) and "bot users is restricted" in str(e):
+                logger.warning(f"Bot API restriction - cannot fetch message history for {identifier}. This is normal for bot tokens.")
+                return []
+            else:
+                logger.error(f"Error getting recent messages: {e}")
             return []
     
     def _get_from_db_cache(self, identifier: str) -> Optional[Dict]:

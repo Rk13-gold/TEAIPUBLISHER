@@ -7,18 +7,9 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt
 from data.repository import Repository
 
-# Import unified theme system
-try:
-    from gui.telegram_theme import TelegramTheme
-except ImportError:
-    TelegramTheme = None
-
 class ContentTab(QWidget):
     def __init__(self):
         super().__init__()
-        # Apply unified theme
-        if TelegramTheme:
-            TelegramTheme.apply_theme_to_widget(self)
         self.setWindowTitle("Títulos e Imágenes")
         self.repo = Repository()
         self.init_ui()

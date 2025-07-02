@@ -8,7 +8,7 @@ class Config:
         self.database_path = os.path.join(os.path.dirname(__file__), 'database.db')
         
         # Telegram API configuration
-        self.telegram_token = '7912067011:AAHDwmvPgD0xpf_Ick0FfyeAAUmtlXQTMcs'
+        self.telegram_token = '8033359786:AAH919qQ2iv2lYZZYuFlvb51PIgP1mNmRLY'
         self.telegram_chat_id = '-1002369802047'
         
         # Telegram Bot API configuration for channel management
