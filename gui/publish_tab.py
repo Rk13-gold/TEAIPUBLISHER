@@ -1,16 +1,19 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QTextEdit, QLineEdit,
     QPushButton, QMessageBox, QLabel, QFileDialog, QSizePolicy, QProgressBar,
-    QComboBox, QFrame, QFormLayout, QApplication
+    QComboBox, QFrame, QFormLayout, QApplication, QCheckBox, QSpinBox, QDateTimeEdit,
+    QGridLayout
 )
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QDateTime
 from PySide6.QtGui import QFont
 import requests
 import json
 import os
 import time
 import re
+import random
+import shutil
 from datetime import datetime
 
 # Professional imports for production-ready functionality
@@ -30,12 +33,11 @@ except ImportError:
     ButtonConfigDialog = None
 
 try:
-    from services.voice_notes import convert_audio_to_ogg, get_audio_quality_settings
+    from services.voice_notes import convert_mp3_to_ogg as convert_audio_to_ogg, get_audio_quality_settings
 except ImportError:
     # Fallback audio conversion functions
     def convert_audio_to_ogg(input_path, output_path, quality="high", title="", artist="", album=""):
         """Fallback audio conversion - copies file if conversion not available"""
-        import shutil
         if not output_path.endswith('.ogg'):
             output_path = output_path.rsplit('.', 1)[0] + '.ogg'
         shutil.copy2(input_path, output_path)
@@ -51,7 +53,6 @@ except ImportError:
         }
 
 # Professional publishing worker for ordered Telegram posts
-
 class PublishWorker(QThread):
     """Professional worker for step-by-step Telegram publishing"""
     progress = Signal(str)  # Progress message
@@ -63,14 +64,12 @@ class PublishWorker(QThread):
         self.config = config
         
     def run(self):
+        """Execute professional publishing sequence"""
         try:
             token = self.config.telegram_token
             chat_id = self.config.telegram_chat_id
             
             self.progress.emit("🚀 Iniciando secuencia de publicación...")
-            
-            # STEP 1: Send main content (image/video/gif with text) - ALWAYS FIRST
-            main_content_sent = False
             
             # Debug information
             media_path = self.post_data.get('presentation_path')
@@ -78,6 +77,9 @@ class PublishWorker(QThread):
             self.progress.emit(f"🔍 Media path: {media_path}")
             self.progress.emit(f"🔍 Main content: {main_content}")
             
+            main_content_sent = False
+            
+            # STEP 1: Send main content (image/video/gif with text) - ALWAYS FIRST
             if self.post_data.get('presentation_path') and self.post_data.get('main_content'):
                 self.progress.emit("📸 Enviando contenido principal con media...")
                 success = self.send_presentation_with_content(token, chat_id)
@@ -95,7 +97,7 @@ class PublishWorker(QThread):
                 main_content_sent = True
                 time.sleep(1.5)
             elif self.post_data.get('main_content'):
-                self.progress.emit("� Enviando mensaje de texto...")
+                self.progress.emit("📝 Enviando mensaje de texto...")
                 success = self.send_main_message(token, chat_id)
                 if not success:
                     self.finished.emit(False, "Error al enviar mensaje de texto")
@@ -133,7 +135,7 @@ class PublishWorker(QThread):
             if not main_content_sent:
                 self.finished.emit(False, "No hay contenido para publicar")
                 return
-            
+                
             self.progress.emit("✅ Secuencia de publicación completada exitosamente")
             self.finished.emit(True, "Post publicado correctamente en el orden especificado")
             
@@ -143,94 +145,29 @@ class PublishWorker(QThread):
             self.finished.emit(False, "Error de conexión: No se pudo conectar con Telegram")
         except Exception as e:
             self.finished.emit(False, f"Error inesperado: {str(e)}")
-    
-    def send_voice_note(self, token, chat_id):
-        """Send premium voice note with high quality conversion"""
+
+    def send_presentation_with_content(self, token, chat_id):
+        """Send presentation media with main content as caption"""
         try:
-            voice_file = self.post_data['voice_file']
-            voice_title = self.post_data.get('voice_title', '')
-            voice_description = self.post_data.get('voice_description', '')
-            quality = self.post_data.get('voice_quality', 'high')
+            file_path = self.post_data['presentation_path']
+            media_type = self.post_data['presentation_type']
+            caption = self.post_data.get('main_content', '')
             
-            # Validate voice file exists
-            if not os.path.exists(voice_file):
-                self.progress.emit("❌ Error: Archivo de audio no encontrado")
-                return False
-            
-            self.progress.emit("🔄 Preparando audio para Telegram...")
-            
-            # Convert to OGG for best Telegram compatibility
-            ext = os.path.splitext(voice_file)[1].lower()
-            ogg_path = voice_file
-            
-            if ext != '.ogg':
-                try:
-                    ogg_path = voice_file.rsplit('.', 1)[0] + '_telegram.ogg'
-                    self.progress.emit("🔄 Convirtiendo audio a formato OGG...")
-                    success = convert_audio_to_ogg(
-                        voice_file, 
-                        ogg_path,
-                        quality=quality,
-                        title=voice_title or "Audio Premium",
-                        artist="Canal Premium",
-                        album="Contenido Exclusivo"
-                    )
-                    if success and os.path.exists(ogg_path):
-                        self.progress.emit("✅ Audio convertido exitosamente")
-                    else:
-                        self.progress.emit("⚠️ Conversión falló, usando archivo original")
-                        ogg_path = voice_file
-                except Exception as e:
-                    self.progress.emit(f"⚠️ Error en conversión: {str(e)}")
-                    self.progress.emit("⚠️ Usando archivo original")
-                    ogg_path = voice_file
-            else:
-                self.progress.emit("✅ Archivo ya está en formato OGG")
-            
-            # Validate final file
-            if not os.path.exists(ogg_path):
-                self.progress.emit("❌ Error: No se pudo preparar el archivo de audio")
-                return False
-            
-            # Create caption (without HTML for voice messages)
-            caption = ""
-            if voice_title:
-                caption += f"👑 {voice_title}\n\n"
-            if voice_description:
-                caption += f"{voice_description}\n\n"
-            caption += "💎 Contenido Premium Exclusivo 🔒"
-            
-            # Limit caption to 1024 characters for voice messages
+            # Limit caption to 1024 characters for media posts
             if len(caption) > 1024:
                 caption = caption[:1020] + "..."
             
-            self.progress.emit("📤 Enviando nota de voz a Telegram...")
-            
-            # Send voice note
-            with open(ogg_path, "rb") as voice:
-                url = f"https://api.telegram.org/bot{token}/sendVoice"
-                files = {"voice": voice}
-                data = {"chat_id": chat_id, "caption": caption}
-                
-                # Send request with timeout
-                response = requests.post(url, data=data, files=files, timeout=60)
-                
-            # Clean up temporary file
-            if ogg_path != voice_file and os.path.exists(ogg_path):
-                os.remove(ogg_path)
-                
-            result = response.json()
-            if result.get("ok"):
-                self.progress.emit("✅ Nota de voz enviada correctamente")
-                return True
-            else:
-                self.progress.emit(f"❌ Error: {result.get('description', 'Error desconocido')}")
-                return False
-            
-        except Exception as e:
-            self.progress.emit(f"❌ Error en nota de voz: {e}")
+            if media_type == "photo":
+                return self.send_photo(token, chat_id, file_path, caption)
+            elif media_type == "video":
+                return self.send_video(token, chat_id, file_path, caption)
+            elif media_type == "animation":
+                return self.send_animation(token, chat_id, file_path, caption)
             return False
-    
+        except Exception as e:
+            self.progress.emit(f"❌ Error en presentación con contenido: {e}")
+            return False
+
     def send_presentation(self, token, chat_id):
         """Send main presentation media"""
         try:
@@ -248,13 +185,11 @@ class PublishWorker(QThread):
                 return self.send_video(token, chat_id, file_path, caption)
             elif media_type == "animation":
                 return self.send_animation(token, chat_id, file_path, caption)
-            
             return False
-            
         except Exception as e:
             self.progress.emit(f"❌ Error en presentación: {e}")
             return False
-    
+
     def send_main_message(self, token, chat_id):
         """Send text-only main message"""
         try:
@@ -285,133 +220,6 @@ class PublishWorker(QThread):
             return False
         except Exception as e:
             self.progress.emit(f"❌ Error inesperado en mensaje: {e}")
-            return False
-    
-    def send_additional_files(self, token, chat_id):
-        """Send additional files"""
-        try:
-            files = self.post_data['additional_files']
-            for i, file_path in enumerate(files, 1):
-                self.progress.emit(f"📎 Enviando archivo {i}/{len(files)}: {os.path.basename(file_path)}")
-                
-                ext = file_path.lower().split('.')[-1]
-                
-                if ext in ['jpg', 'jpeg', 'png', 'bmp', 'webp']:
-                    success = self.send_photo(token, chat_id, file_path, "")
-                elif ext in ['mp4', 'mov', 'avi', 'mkv']:
-                    success = self.send_video(token, chat_id, file_path, "")
-                elif ext == 'gif':
-                    success = self.send_animation(token, chat_id, file_path, "")
-                else:
-                    success = self.send_document(token, chat_id, file_path, "")
-                
-                if not success:
-                    return False
-                
-                time.sleep(0.5)  # Small delay between files
-            
-            self.progress.emit("✅ Todos los archivos enviados correctamente")
-            return True
-        except Exception as e:
-            self.progress.emit(f"❌ Error en archivos: {e}")
-            return False
-    
-    def send_cta_hashtags(self, token, chat_id):
-        """Send CTA and hashtags with buttons"""
-        try:
-            text = self.post_data['cta_hashtags']
-            reply_markup = self.post_data.get('reply_markup')
-            
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
-            
-            if reply_markup:
-                data["reply_markup"] = reply_markup
-                self.progress.emit("🔗 Agregando botones interactivos...")
-                
-            response = requests.post(url, data=data)
-            result = response.json()
-            
-            if result.get("ok"):
-                self.progress.emit("✅ CTA y hashtags enviados")
-                return True
-            else:
-                self.progress.emit(f"❌ Error: {result.get('description', 'Error desconocido')}")
-                return False
-        except Exception as e:
-            self.progress.emit(f"❌ Error en CTA: {e}")
-            return False
-    
-    def send_photo(self, token, chat_id, file_path, caption):
-        """Send photo"""
-        try:
-            with open(file_path, "rb") as photo:
-                url = f"https://api.telegram.org/bot{token}/sendPhoto"
-                files = {"photo": photo}
-                data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-                response = requests.post(url, data=data, files=files)
-            return response.json().get("ok", False)
-        except:
-            return False
-    
-    def send_video(self, token, chat_id, file_path, caption):
-        """Send video"""
-        try:
-            with open(file_path, "rb") as video:
-                url = f"https://api.telegram.org/bot{token}/sendVideo"
-                files = {"video": video}
-                data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-                response = requests.post(url, data=data, files=files)
-            return response.json().get("ok", False)
-        except:
-            return False
-    
-    def send_animation(self, token, chat_id, file_path, caption):
-        """Send GIF/animation"""
-        try:
-            with open(file_path, "rb") as animation:
-                url = f"https://api.telegram.org/bot{token}/sendAnimation"
-                files = {"animation": animation}
-                data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-                response = requests.post(url, data=data, files=files)
-            return response.json().get("ok", False)
-        except:
-            return False
-    
-    def send_document(self, token, chat_id, file_path, caption):
-        """Send document"""
-        try:
-            with open(file_path, "rb") as document:
-                url = f"https://api.telegram.org/bot{token}/sendDocument"
-                files = {"document": document}
-                data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-                response = requests.post(url, data=data, files=files)
-            return response.json().get("ok", False)
-        except:
-            return False
-
-    def send_presentation_with_content(self, token, chat_id):
-        """Send presentation media with main content as caption"""
-        try:
-            file_path = self.post_data['presentation_path']
-            media_type = self.post_data['presentation_type']
-            caption = self.post_data.get('main_content', '')
-            
-            # Limit caption to 1024 characters for media posts
-            if len(caption) > 1024:
-                caption = caption[:1020] + "..."
-            
-            if media_type == "photo":
-                return self.send_photo(token, chat_id, file_path, caption)
-            elif media_type == "video":
-                return self.send_video(token, chat_id, file_path, caption)
-            elif media_type == "animation":
-                return self.send_animation(token, chat_id, file_path, caption)
-            
-            return False
-            
-        except Exception as e:
-            self.progress.emit(f"❌ Error en presentación con contenido: {e}")
             return False
 
     def send_voice_note_max_quality(self, token, chat_id):
@@ -461,7 +269,7 @@ class PublishWorker(QThread):
                 self.progress.emit("❌ Error: No se pudo preparar el archivo de audio")
                 return False
             
-            # Create caption (without HTML for voice messages)
+            # Create caption with consistent width formatting
             caption = ""
             if voice_title:
                 caption += f"👑 {voice_title}\n\n"
@@ -483,19 +291,18 @@ class PublishWorker(QThread):
                 
                 # Send request with timeout
                 response = requests.post(url, data=data, files=files, timeout=60)
-                
+                result = response.json()
+            
             # Clean up temporary file
             if ogg_path != voice_file and os.path.exists(ogg_path):
                 os.remove(ogg_path)
-                
-            result = response.json()
+            
             if result.get("ok"):
                 self.progress.emit("✅ Nota de voz premium enviada correctamente")
                 return True
             else:
                 self.progress.emit(f"❌ Error: {result.get('description', 'Error desconocido')}")
                 return False
-            
         except Exception as e:
             self.progress.emit(f"❌ Error en nota de voz: {e}")
             return False
@@ -505,24 +312,36 @@ class PublishWorker(QThread):
         try:
             text = self.post_data['cta_hashtags']
             
+            self.progress.emit(f"📝 Preparando CTA: {len(text)} caracteres")
+            
             url = f"https://api.telegram.org/bot{token}/sendMessage"
             data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
-                
-            response = requests.post(url, data=data)
+            
+            self.progress.emit("📡 Enviando CTA a Telegram...")
+            response = requests.post(url, data=data, timeout=30)
             result = response.json()
+            
+            self.progress.emit(f"📡 Respuesta de Telegram: {result}")
             
             if result.get("ok"):
                 self.progress.emit("✅ CTA y hashtags enviados")
                 return True
             else:
-                self.progress.emit(f"❌ Error: {result.get('description', 'Error desconocido')}")
+                error_desc = result.get('description', 'Error desconocido')
+                self.progress.emit(f"❌ Error API Telegram: {error_desc}")
                 return False
+        except requests.exceptions.Timeout:
+            self.progress.emit("❌ Timeout: La petición de CTA tardó demasiado")
+            return False
+        except requests.exceptions.ConnectionError:
+            self.progress.emit("❌ Error de conexión con Telegram en CTA")
+            return False
         except Exception as e:
-            self.progress.emit(f"❌ Error en CTA: {e}")
+            self.progress.emit(f"❌ Error inesperado en CTA: {e}")
             return False
 
     def send_buttons_only(self, token, chat_id):
-        """Send buttons as separate interactive message"""
+        """Send buttons as separate interactive message with psychological phrases"""
         try:
             reply_markup = self.post_data.get('reply_markup')
             
@@ -530,8 +349,29 @@ class PublishWorker(QThread):
                 self.progress.emit("⚠️ No hay botones para enviar")
                 return True  # Not an error, just no buttons
             
-            # Simple message with buttons
-            text = "🔗 Interactúa con los botones de abajo:"
+            # Arsenal de frases psicológicas poderosas (importado desde archivo externo)
+            try:
+                from psychological_phrases import psychological_phrases
+                self.progress.emit(f"✅ Arsenal de {len(psychological_phrases)} frases psicológicas cargado")
+            except ImportError:
+                # Fallback con algunas frases si el archivo no está disponible
+                psychological_phrases = [
+                    "🤔 El momento de la verdad ha llegado... ¿Cuál de estas opciones cambiará tu destino para siempre?",
+                    "🎯 Tres caminos se abren ante ti, solo uno te llevará al éxito que tanto deseas alcanzar hoy",
+                    "🔍 La respuesta que has estado buscando durante tanto tiempo está escondida detrás de uno de estos botones",
+                    "⚡ Tu futuro se decide ahora mismo con un simple clic... ¿Estás preparado para esta transformación total?",
+                    "🧠 Miles de personas ya eligieron su destino aquí, ahora es tu turno de unirte a los ganadores",
+                    "⏰ Solo quedan pocas horas para acceder a esta información que podría cambiar tu vida completamente para siempre",
+                    "🔥 Esta oportunidad única desaparecerá muy pronto, no dejes que otros tomen tu lugar en el éxito absoluto",
+                    "💎 El acceso exclusivo que todos quieren obtener está aquí, pero no estará disponible para siempre",
+                    "🚨 Último momento para descubrir el secreto que los más exitosos han estado guardando celosamente durante años",
+                    "👑 Únete a los miles de personas exitosas que ya descubrieron el poder de estas estrategias comprobadas"
+                ]
+                self.progress.emit("⚠️ Usando frases de fallback (archivo psychological_phrases.py no encontrado)")
+            
+            # Seleccionar frase aleatoria
+            text = random.choice(psychological_phrases)
+            self.progress.emit(f"🎯 Usando frase psicológica: '{text[:50]}...'")
             
             url = f"https://api.telegram.org/bot{token}/sendMessage"
             data = {
@@ -540,18 +380,64 @@ class PublishWorker(QThread):
                 "reply_markup": reply_markup,
                 "parse_mode": "HTML"
             }
-                
-            response = requests.post(url, data=data)
+            
+            self.progress.emit("📡 Enviando botones a Telegram...")
+            response = requests.post(url, data=data, timeout=30)
             result = response.json()
+            
+            self.progress.emit(f"📡 Respuesta de Telegram: {result}")
             
             if result.get("ok"):
                 self.progress.emit("✅ Botones interactivos enviados")
                 return True
             else:
-                self.progress.emit(f"❌ Error: {result.get('description', 'Error desconocido')}")
+                error_desc = result.get('description', 'Error desconocido')
+                self.progress.emit(f"❌ Error API Telegram: {error_desc}")
                 return False
+        except requests.exceptions.Timeout:
+            self.progress.emit("❌ Timeout: La petición de botones tardó demasiado")
+            return False
+        except requests.exceptions.ConnectionError:
+            self.progress.emit("❌ Error de conexión con Telegram en botones")
+            return False
         except Exception as e:
-            self.progress.emit(f"❌ Error en botones: {e}")
+            self.progress.emit(f"❌ Error inesperado en botones: {e}")
+            return False
+
+    def send_photo(self, token, chat_id, file_path, caption):
+        """Send photo"""
+        try:
+            with open(file_path, "rb") as photo:
+                url = f"https://api.telegram.org/bot{token}/sendPhoto"
+                files = {"photo": photo}
+                data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
+                response = requests.post(url, data=data, files=files)
+            return response.json().get("ok", False)
+        except:
+            return False
+
+    def send_video(self, token, chat_id, file_path, caption):
+        """Send video"""
+        try:
+            with open(file_path, "rb") as video:
+                url = f"https://api.telegram.org/bot{token}/sendVideo"
+                files = {"video": video}
+                data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
+                response = requests.post(url, data=data, files=files)
+            return response.json().get("ok", False)
+        except:
+            return False
+
+    def send_animation(self, token, chat_id, file_path, caption):
+        """Send GIF/animation"""
+        try:
+            with open(file_path, "rb") as animation:
+                url = f"https://api.telegram.org/bot{token}/sendAnimation"
+                files = {"animation": animation}
+                data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
+                response = requests.post(url, data=data, files=files)
+            return response.json().get("ok", False)
+        except:
             return False
 
 class PublishTab(QWidget):
@@ -577,7 +463,7 @@ class PublishTab(QWidget):
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(12, 12, 12, 12)
         main_layout.setSpacing(16)
-
+        
         # Section 1: Content Configuration (Left)
         self.setup_content_configuration_section(main_layout)
         
@@ -595,20 +481,20 @@ class PublishTab(QWidget):
         config_group = QGroupBox("⚙️ Configuración de Contenido")
         config_layout = QVBoxLayout()
         config_layout.setSpacing(12)
-
+        
         # Voice note section (premium feature)
         self.setup_voice_note_section(config_layout)
         
         # CTA and hashtags section
         self.setup_cta_hashtags_section(config_layout)
         
-        # Publishing progress section
-        self.setup_publishing_progress_section(config_layout)
-
+        # Publishing status and parameters section (expanded)
+        self.setup_publishing_status_section(config_layout)
+        
         config_group.setLayout(config_layout)
         config_group.setMinimumWidth(350)
         config_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        main_layout.addWidget(config_group, 1)  # Equal width
+        main_layout.addWidget(config_group, 1) # Equal width
 
     def setup_post_editor_section(self, main_layout):
         """Setup center section: Post Editor (using AI Generator structure)"""
@@ -621,31 +507,34 @@ class PublishTab(QWidget):
         self.title_edit = QLineEdit()
         self.title_edit.setPlaceholderText("Título del post")
         self.title_edit.textChanged.connect(self.update_preview)
+        self.title_edit.textChanged.connect(self.update_post_statistics)
         title_img_layout.addWidget(QLabel("📝 Título:"))
         title_img_layout.addWidget(self.title_edit, 2)
-
+        
         # Emoji button for title (from AI Generator)
-        self.title_emoji_btn = QPushButton("🛸")
+        self.title_emoji_btn = QPushButton("�")
         self.title_emoji_btn.setFixedWidth(24)
         self.title_emoji_btn.setFont(QFont("Segoe UI Emoji", 18))
         self.title_emoji_btn.setProperty("class", "emoji-btn")
         self.title_emoji_btn.setStyleSheet("color: none; background: none; border: none;")
         self.title_emoji_btn.clicked.connect(self.insert_emoji_title)
         title_img_layout.addWidget(self.title_emoji_btn, 0)
+        
+
 
         # Image button (from AI Generator)
         self.image_btn = QPushButton("📷 Media")
         self.image_btn.setToolTip("Seleccionar imagen/video/GIF para el post")
         self.image_btn.clicked.connect(self.select_image_for_preview)
         title_img_layout.addWidget(self.image_btn, 0)
-
+        
         editor_layout.addLayout(title_img_layout)
-
+        
         # Media status label
         self.media_status_label = QLabel("Sin media seleccionado")
         self.media_status_label.setStyleSheet("color: gray; font-style: italic;")
         editor_layout.addWidget(self.media_status_label)
-
+        
         # Main editing area (from AI Generator)
         self.edit_area = QTextEdit()
         self.edit_area.setPlaceholderText("Escribe aquí el contenido del post para Telegram...")
@@ -660,22 +549,24 @@ class PublishTab(QWidget):
         self.button_config_btn = QPushButton("🔗 Agregar botones")
         self.button_config_btn.clicked.connect(self.open_button_config)
         buttons_row.addWidget(self.button_config_btn)
-
+        
         # Emoji button for content (from AI Generator)
-        self.emoji_btn = QPushButton("🛸")
+        self.emoji_btn = QPushButton("�")
         self.emoji_btn.setFixedWidth(24)
         self.emoji_btn.setFont(QFont("Segoe UI Emoji", 18))
         self.emoji_btn.setProperty("class", "emoji-btn")
         self.emoji_btn.setStyleSheet("color: none; background: none; border: none;")
         self.emoji_btn.clicked.connect(self.insert_emoji_content)
         buttons_row.addWidget(self.emoji_btn)
+        
 
-        # Character counter
+
+        # Character counter (modified from AI Generator)
         self.char_counter = QLabel("0 caracteres")
         self.char_counter.setStyleSheet("color: gray; font-size: 11px;")
         buttons_row.addWidget(self.char_counter)
-
         buttons_row.addStretch(1)
+        
         editor_layout.addLayout(buttons_row)
 
         # Publishing button (modified from AI Generator)
@@ -685,26 +576,28 @@ class PublishTab(QWidget):
         self.publish_button.clicked.connect(self.publish_post)
         publish_layout.addWidget(self.publish_button)
         editor_layout.addLayout(publish_layout)
-
+        
         editor_group.setLayout(editor_layout)
         editor_group.setMinimumWidth(350)
         editor_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        main_layout.addWidget(editor_group, 1)  # Equal width
+        main_layout.addWidget(editor_group, 1) # Equal width
 
     def setup_preview_publishing_section(self, main_layout):
         """Setup right section: Preview and Publishing Status"""
-        preview_group = QGroupBox("📱 Vista Previa y Estado")
+        preview_group = QGroupBox("📱 Vista Previa")
         preview_layout = QVBoxLayout()
         preview_layout.setSpacing(8)
-
+        
         # Preview widget (from AI Generator)
         if PostPreviewWidget:
             self.post_preview = PostPreviewWidget()
-            self.post_preview.setMinimumWidth(300)
-            self.post_preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            self.post_preview.setMinimumWidth(280)  # Más estrecho pero completo
+            self.post_preview.setMaximumWidth(320)  # Límite máximo
+            self.post_preview.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
             
             # Enable image selection from preview (from AI Generator)
-            self.post_preview.image_label.mousePressEvent = self.post_preview_select_image
+            if hasattr(self.post_preview, 'image_label'):
+                self.post_preview.image_label.mousePressEvent = self.post_preview_select_image
             
             preview_layout.addWidget(self.post_preview)
         else:
@@ -712,47 +605,22 @@ class PublishTab(QWidget):
             self.preview_area = QTextEdit()
             self.preview_area.setReadOnly(True)
             self.preview_area.setPlaceholderText("Vista previa del post...")
+            self.preview_area.setMinimumWidth(280)
+            self.preview_area.setMaximumWidth(320)
             preview_layout.addWidget(self.preview_area)
-
-        # Publishing status and progress
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        preview_layout.addWidget(self.progress_bar)
         
-        self.progress_log = QTextEdit()
-        self.progress_log.setMaximumHeight(120)
-        self.progress_log.setReadOnly(True)
-        self.progress_log.setVisible(False)
-        self.progress_log.setStyleSheet("font-family: 'Consolas', monospace; font-size: 11px;")
-        preview_layout.addWidget(self.progress_log)
-
         preview_group.setLayout(preview_layout)
-        preview_group.setMinimumWidth(350)
-        preview_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        main_layout.addWidget(preview_group, 1)  # Equal width
+        preview_group.setMinimumWidth(300)
+        preview_group.setMaximumWidth(340)
+        preview_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        main_layout.addWidget(preview_group, 0)  # Sin expansión
 
     def setup_voice_note_section(self, layout):
         """Setup professional voice note section"""
         voice_group = QGroupBox("🎵 Nota de Voz Premium (Opcional)")
+        voice_group.setMinimumHeight(180)
+        voice_group.setMaximumHeight(200)
         voice_layout = QVBoxLayout()
-        
-        # Voice quality selection - Fixed to maximum quality
-        quality_layout = QHBoxLayout()
-        quality_layout.addWidget(QLabel("Calidad:"))
-        self.voice_quality_combo = QComboBox()
-        
-        # Only show maximum quality options
-        max_quality_settings = {
-            "ultra": {"bitrate": "320k", "name": "Ultra Premium (320k) - MÁXIMA CALIDAD"}
-        }
-        
-        for key, setting in max_quality_settings.items():
-            self.voice_quality_combo.addItem(setting["name"], key)
-        self.voice_quality_combo.setCurrentIndex(0)  # Always select maximum quality
-        self.voice_quality_combo.setEnabled(False)   # Disable selection - always max quality
-        quality_layout.addWidget(self.voice_quality_combo)
-        quality_layout.addStretch()
-        voice_layout.addLayout(quality_layout)
         
         # Voice file selection
         voice_file_layout = QHBoxLayout()
@@ -765,16 +633,33 @@ class PublishTab(QWidget):
         voice_file_layout.addWidget(self.voice_file_label)
         voice_layout.addLayout(voice_file_layout)
         
-        # Voice metadata
-        metadata_layout = QFormLayout()
+        # Voice metadata with emoji button
+        metadata_layout = QVBoxLayout()
+        
+        # Title row with emoji button
+        title_row = QHBoxLayout()
+        title_row.addWidget(QLabel("Título:"))
         self.voice_title_edit = QLineEdit()
         self.voice_title_edit.setPlaceholderText("Título del audio (opcional)")
-        metadata_layout.addRow("Título:", self.voice_title_edit)
+        title_row.addWidget(self.voice_title_edit)
         
+        # Emoji button for voice title
+        self.voice_emoji_btn = QPushButton("😊")
+        self.voice_emoji_btn.setFixedWidth(24)
+        self.voice_emoji_btn.setFont(QFont("Segoe UI Emoji", 16))
+        self.voice_emoji_btn.setStyleSheet("color: none; background: none; border: none;")
+        self.voice_emoji_btn.setToolTip("Agregar emoji al título del audio")
+        self.voice_emoji_btn.clicked.connect(self.insert_emoji_voice_title)
+        title_row.addWidget(self.voice_emoji_btn)
+        metadata_layout.addLayout(title_row)
+        
+        # Description
+        metadata_layout.addWidget(QLabel("Descripción:"))
         self.voice_description_edit = QTextEdit()
         self.voice_description_edit.setPlaceholderText("Descripción del audio (opcional)")
-        self.voice_description_edit.setMaximumHeight(60)
-        metadata_layout.addRow("Descripción:", self.voice_description_edit)
+        self.voice_description_edit.setMaximumHeight(50)
+        metadata_layout.addWidget(self.voice_description_edit)
+        
         voice_layout.addLayout(metadata_layout)
         
         voice_group.setLayout(voice_layout)
@@ -783,6 +668,8 @@ class PublishTab(QWidget):
     def setup_cta_hashtags_section(self, layout):
         """Setup CTA and hashtags section"""
         engagement_group = QGroupBox("🎯 Engagement y Hashtags")
+        engagement_group.setMinimumHeight(120)
+        engagement_group.setMaximumHeight(140)
         engagement_layout = QVBoxLayout()
         
         # CTA section
@@ -791,6 +678,7 @@ class PublishTab(QWidget):
         self.cta_edit = QLineEdit()
         self.cta_edit.setPlaceholderText("¡Comparte si te gustó! 👍")
         self.cta_edit.textChanged.connect(self.update_preview)
+        self.cta_edit.textChanged.connect(self.update_post_statistics)
         cta_layout.addWidget(self.cta_edit)
         
         self.cta_emoji_btn = QPushButton("😊")
@@ -805,32 +693,89 @@ class PublishTab(QWidget):
         self.hashtags_edit = QLineEdit()
         self.hashtags_edit.setPlaceholderText("#viral #trending #content")
         self.hashtags_edit.textChanged.connect(self.update_preview)
+        self.hashtags_edit.textChanged.connect(self.update_post_statistics)
         hashtags_layout.addWidget(self.hashtags_edit)
         engagement_layout.addLayout(hashtags_layout)
         
         engagement_group.setLayout(engagement_layout)
         layout.addWidget(engagement_group)
 
-    def setup_publishing_progress_section(self, layout):
-        """Setup publishing progress section in left panel"""
-        progress_group = QGroupBox("📊 Estado de Publicación")
-        progress_layout = QVBoxLayout()
+    def setup_publishing_status_section(self, layout):
+        """Setup comprehensive publishing status and parameters section"""
+        status_group = QGroupBox("📊 Estado y Parámetros de Publicación")
+        status_group.setMinimumHeight(350)
+        status_group.setMaximumHeight(400)
+        status_layout = QVBoxLayout()
         
-        # Status label
+        # Current status
         self.status_label = QLabel("✅ Listo para publicar")
-        self.status_label.setStyleSheet("color: green; font-weight: bold;")
-        progress_layout.addWidget(self.status_label)
+        self.status_label.setStyleSheet("color: green; font-weight: bold; font-size: 12px;")
+        status_layout.addWidget(self.status_label)
         
-        # Statistics
+        # Publishing parameters
+        params_layout = QFormLayout()
+        
+        # Telegram limits info
+        self.max_text_label = QLabel("4096 caracteres")
+        self.max_caption_label = QLabel("1024 caracteres") 
+        self.max_voice_label = QLabel("50 MB")
+        self.max_photo_label = QLabel("10 MB")
+        self.max_video_label = QLabel("50 MB")
+        
+        params_layout.addRow("📝 Límite texto:", self.max_text_label)
+        params_layout.addRow("📷 Límite caption:", self.max_caption_label)
+        params_layout.addRow("🎵 Límite audio:", self.max_voice_label)
+        params_layout.addRow("🖼️ Límite foto:", self.max_photo_label)
+        params_layout.addRow("🎥 Límite video:", self.max_video_label)
+        
+        status_layout.addLayout(params_layout)
+        
+        # Current post statistics
         stats_layout = QFormLayout()
-        self.post_count_label = QLabel("0")
-        self.success_rate_label = QLabel("100%")
-        stats_layout.addRow("Posts publicados:", self.post_count_label)
-        stats_layout.addRow("Tasa de éxito:", self.success_rate_label)
-        progress_layout.addLayout(stats_layout)
+        self.current_chars_label = QLabel("0")
+        self.current_words_label = QLabel("0")
+        self.current_media_label = QLabel("Ninguno")
+        self.current_buttons_label = QLabel("0")
         
-        progress_group.setLayout(progress_layout)
-        layout.addWidget(progress_group)
+        stats_layout.addRow("✏️ Caracteres actuales:", self.current_chars_label)
+        stats_layout.addRow("📝 Palabras actuales:", self.current_words_label)
+        stats_layout.addRow("📎 Media actual:", self.current_media_label)
+        stats_layout.addRow("🔗 Botones actuales:", self.current_buttons_label)
+        
+        status_layout.addLayout(stats_layout)
+        
+        # Publishing options (moved here)
+        options_layout = QVBoxLayout()
+        
+        self.premium_formatting_checkbox = QCheckBox("✨ Formato Premium HTML")
+        self.premium_formatting_checkbox.setToolTip("Aplicar formato HTML mejorado al texto")
+        self.premium_formatting_checkbox.setChecked(True)
+        options_layout.addWidget(self.premium_formatting_checkbox)
+        
+        self.spoiler_checkbox = QCheckBox("🕵️ Efecto Spoiler en medios")
+        self.spoiler_checkbox.setToolTip("Ocultar imágenes/videos hasta que el usuario haga clic")
+        options_layout.addWidget(self.spoiler_checkbox)
+        
+        status_layout.addLayout(options_layout)
+        
+        # Progress bar (moved here)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        status_layout.addWidget(self.progress_bar)
+        
+        # Progress log (moved here)
+        self.progress_log = QTextEdit()
+        self.progress_log.setMaximumHeight(80)
+        self.progress_log.setReadOnly(True)
+        self.progress_log.setVisible(False)
+        self.progress_log.setStyleSheet("font-family: 'Consolas', monospace; font-size: 9px;")
+        self.progress_log.setPlaceholderText("El log de publicación aparecerá aquí...")
+        status_layout.addWidget(self.progress_log)
+        
+        status_group.setLayout(status_layout)
+        layout.addWidget(status_group)
+    
+
 
     # ==================== AI GENERATOR EDITOR METHODS ====================
     
@@ -875,27 +820,25 @@ class PublishTab(QWidget):
             QMessageBox.information(self, "Info", "Función de emoji no disponible")
 
     def select_image_for_preview(self):
-        """Select image for preview (from AI Generator)"""
+        """Select image/video/GIF for preview (from AI Generator)"""
         file, _ = QFileDialog.getOpenFileName(
-            self, 
-            "Seleccionar Media", 
-            "", 
-            "Todos los medios (*.png *.jpg *.jpeg *.webp *.bmp *.mp4 *.mov *.avi *.mkv *.gif);;Imágenes (*.png *.jpg *.jpeg *.webp *.bmp);;Videos (*.mp4 *.mov *.avi *.mkv);;GIFs (*.gif)"
+            self, "Seleccionar Media",
+            "", "Archivos de Media (*.png *.jpg *.jpeg *.webp *.bmp *.mp4 *.mov *.avi *.mkv *.gif);;Imágenes (*.png *.jpg *.jpeg *.webp *.bmp);;Videos (*.mp4 *.mov *.avi *.mkv);;GIFs (*.gif)"
         )
+        
         if file:
-            self.telegram_image_path = file
             self.presentation_media_path = file
-            
             ext = file.lower().split('.')[-1]
+            
             if ext in ['jpg', 'jpeg', 'png', 'bmp', 'webp']:
                 self.presentation_media_type = "photo"
-                icon = "📷"
+                icon = "🖼️"
             elif ext in ['mp4', 'mov', 'avi', 'mkv']:
                 self.presentation_media_type = "video"
-                icon = "🎬"
+                icon = "🎥"
             elif ext == 'gif':
                 self.presentation_media_type = "animation"
-                icon = "🎞️"
+                icon = "🎭"
             else:
                 self.presentation_media_type = "document"
                 icon = "📎"
@@ -904,113 +847,291 @@ class PublishTab(QWidget):
             self.media_status_label.setText(f"{icon} {filename}")
             self.media_status_label.setStyleSheet("color: green; font-weight: bold;")
             self.update_preview()
+            self.update_post_statistics()
 
     def post_preview_select_image(self, event):
-        """Select image from preview area click (from AI Generator)"""
+        """Handle image selection from preview click (from AI Generator)"""
         self.select_image_for_preview()
 
     def open_button_config(self):
-        """Open button configuration dialog (from AI Generator)"""
+        """Open button configuration dialog"""
         if ButtonConfigDialog:
             dlg = ButtonConfigDialog(self, self.telegram_buttons)
             if dlg.exec():
                 self.telegram_buttons = dlg.get_values()
+                # Actualizar inmediatamente el previsualizador y estadísticas
                 self.update_preview()
+                self.update_post_statistics()
         else:
             QMessageBox.information(self, "Info", "Configuración de botones no disponible")
 
     def update_preview(self):
-        """Update preview using PostPreviewWidget (from AI Generator)"""
-        title = self.title_edit.text().strip()
-        content = self.edit_area.toPlainText().strip()
-        cta = self.cta_edit.text().strip()
-        hashtags = self.hashtags_edit.text().strip()
-        
-        # Build complete content (from AI Generator approach)
-        full_content = ""
-        if title:
-            full_content += f"{title}\n\n"
-        if content:
-            full_content += content
-        if cta:
-            full_content += f"\n\n🎯 {cta}"
-        if hashtags:
-            full_content += f"\n\n{hashtags}"
-        
-        # Format for Telegram preview (using AI Generator format method)
-        preview_text = self.format_telegram_post(full_content)
-        
-        # Update preview widget
-        if PostPreviewWidget and hasattr(self, 'post_preview') and self.post_preview:
-            self.post_preview.set_html(preview_text)
-            self.post_preview.set_image(self.telegram_image_path)
+        """Update post preview using PostPreviewWidget (same logic as AI Generator)"""
+        if hasattr(self, 'post_preview') and self.post_preview:
+            # Get content parts
+            title = self.title_edit.text().strip()
+            content = self.edit_area.toPlainText().strip()
+            cta = self.cta_edit.text().strip()
+            hashtags = self.hashtags_edit.text().strip()
             
-            # Set buttons (from AI Generator)
+            # Combine content using AI Generator logic
+            full_text = ""
+            if title:
+                full_text += f"{title}\n\n"
+            if content:
+                full_text += content
+            if cta or hashtags:
+                full_text += "\n\n"
+            if cta:
+                full_text += f"{cta}"
+            if hashtags:
+                if cta:
+                    full_text += f"\n{hashtags}"
+                else:
+                    full_text += hashtags
+            
+            # Format text using same logic as AI Generator
+            formatted_text = self.format_telegram_post(full_text)
+            
+            # Update preview using correct methods (same as AI Generator)
+            self.post_preview.set_html(formatted_text)
+            self.post_preview.set_image(self.presentation_media_path)
+            
+            # Update buttons using same format as AI Generator - SIEMPRE mostrar botones configurados
             keyboard = []
             if self.telegram_buttons and any(self.telegram_buttons):
                 for row in self.telegram_buttons:
-                    row_buttons = []
-                    for btn in row:
-                        if isinstance(btn, dict) and "text" in btn and "url" in btn:
-                            row_buttons.append({"text": btn["text"], "url": btn["url"]})
-                    if row_buttons:
-                        keyboard.append(row_buttons)
+                    if row:  # Si la fila no está vacía
+                        row_buttons = []
+                        for btn in row:
+                            if isinstance(btn, dict) and "text" in btn and btn["text"].strip():
+                                if "url" in btn and btn["url"].strip():
+                                    row_buttons.append({"text": btn["text"], "url": btn["url"]})
+                                else:
+                                    row_buttons.append({"text": btn["text"]})
+                        if row_buttons:
+                            keyboard.append(row_buttons)
+            
+            # Siempre actualizar los botones (aunque esté vacío)
             self.post_preview.set_buttons(keyboard, "row")
+                
         elif hasattr(self, 'preview_area'):
-            self.preview_area.setHtml(preview_text)
+            # Fallback text preview
+            title = self.title_edit.text().strip()
+            content = self.edit_area.toPlainText().strip()
+            cta = self.cta_edit.text().strip()
+            hashtags = self.hashtags_edit.text().strip()
+            
+            preview_text = ""
+            if title:
+                preview_text += f"📝 Título: {title}\n\n"
+            if content:
+                preview_text += f"💬 Contenido:\n{content}\n\n"
+            if self.presentation_media_path:
+                filename = os.path.basename(self.presentation_media_path)
+                preview_text += f"📎 Media: {filename}\n\n"
+            if cta:
+                preview_text += f"🎯 CTA: {cta}\n"
+            if hashtags:
+                preview_text += f"🏷️ Tags: {hashtags}\n"
+            
+            # Mostrar botones en preview de texto también
+            if self.telegram_buttons and any(self.telegram_buttons):
+                preview_text += "\n🔗 Botones configurados:\n"
+                for i, row in enumerate(self.telegram_buttons):
+                    if row:
+                        for j, btn in enumerate(row):
+                            if isinstance(btn, dict) and "text" in btn and btn["text"].strip():
+                                preview_text += f"   [{btn['text']}]"
+                                if "url" in btn and btn["url"].strip():
+                                    preview_text += f" -> {btn['url']}"
+                                preview_text += "\n"
+            
+            self.preview_area.setPlainText(preview_text)
+        
+        # Actualizar estadísticas del post
+        self.update_post_statistics()
+
+    def update_character_counter(self):
+        """Update character counter for content"""
+        content = self.edit_area.toPlainText()
+        char_count = len(content)
+        word_count = len([word for word in content.split() if word])
+        self.char_counter.setText(f"{char_count} caracteres ({word_count} palabras)")
+
+    def select_voice_file(self):
+        """Select voice/audio file for premium note"""
+        file, _ = QFileDialog.getOpenFileName(
+            self, "Seleccionar Archivo de Audio",
+            "", "Archivos de Audio (*.mp3 *.wav *.ogg *.m4a *.aac *.flac)"
+        )
+        
+        if file:
+            self.voice_selected_file = file
+            filename = os.path.basename(file)
+            self.voice_file_label.setText(f"🎵 {filename}")
+            self.voice_file_label.setStyleSheet("color: green; font-weight: bold;")
+        else:
+            self.voice_selected_file = None
+            self.voice_file_label.setText("Ningún archivo seleccionado")
+            self.voice_file_label.setStyleSheet("color: gray; font-style: italic;")
+
+    def connect_all_events(self):
+        """Connect all UI events"""
+        pass  # Events already connected in setup methods
+
+    def prepare_post_data(self):
+        """Prepare post data for publishing"""
+        # Get content
+        main_content = self.edit_area.toPlainText().strip()
+        title = self.title_edit.text().strip()
+        
+        if title and main_content:
+            full_content = f"<b>{title}</b>\n\n{main_content}"
+        elif title:
+            full_content = f"<b>{title}</b>"
+        else:
+            full_content = main_content
+        
+        # Get CTA and hashtags
+        cta = self.cta_edit.text().strip()
+        hashtags = self.hashtags_edit.text().strip()
+        cta_hashtags = ""
+        if cta or hashtags:
+            if cta:
+                cta_hashtags += cta
+            if hashtags:
+                if cta:
+                    cta_hashtags += f"\n{hashtags}"
+                else:
+                    cta_hashtags = hashtags
+        
+        # Get voice data
+        voice_data = {}
+        if self.voice_selected_file:
+            voice_data = {
+                'voice_file': self.voice_selected_file,
+                'voice_title': self.voice_title_edit.text().strip(),
+                'voice_description': self.voice_description_edit.toPlainText().strip(),
+                'voice_quality': 'ultra'  # Always maximum quality
+            }
+        
+        # Reset media status if no media selected
+        if not self.presentation_media_path:
+            self.media_status_label.setText("Sin media seleccionado")
+            self.media_status_label.setStyleSheet("color: gray; font-style: italic;")
+        
+        return {
+            'main_content': full_content if full_content else None,
+            'presentation_path': self.presentation_media_path,
+            'presentation_type': self.presentation_media_type,
+            'cta_hashtags': cta_hashtags if cta_hashtags else None,
+            'reply_markup': json.dumps({"inline_keyboard": self.telegram_buttons}) if self.telegram_buttons and self.telegram_buttons[0] else None,
+            **voice_data
+        }
+
+    def publish_post(self):
+        """Publish post to Telegram"""
+        if self.worker and self.worker.isRunning():
+            QMessageBox.warning(self, "Advertencia", "Ya hay una publicación en proceso")
+            return
+        
+        # Validate that we have at least some content
+        post_data = self.prepare_post_data()
+        
+        if not any([post_data.get('main_content'), post_data.get('presentation_path'), 
+                   post_data.get('voice_file'), post_data.get('cta_hashtags')]):
+            QMessageBox.warning(self, "Error", "Debes agregar al menos un título o contenido")
+            return
+        
+        # Start publishing
+        self.worker = PublishWorker(post_data, self.config)
+        self.worker.progress.connect(self.on_progress)
+        self.worker.finished.connect(self.on_finished)
+        
+        # Update UI
+        self.publish_button.setEnabled(False)
+        self.status_label.setText("📤 Publicación en proceso")
+        self.status_label.setStyleSheet("color: orange; font-weight: bold;")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)  # Indeterminate progress
+        self.progress_log.setVisible(True)
+        self.progress_log.clear()
+        
+        self.worker.start()
+
+    def on_progress(self, message):
+        """Handle progress updates"""
+        self.progress_log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+        
+        # Auto-scroll to bottom
+        scrollbar = self.progress_log.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def on_finished(self, success, message):
+        """Handle publishing completion"""
+        self.publish_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
+        
+        if success:
+            self.status_label.setText("✅ Publicado exitosamente")
+            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            QMessageBox.information(self, "Éxito", message)
+            
+            # Clear form after successful publish
+            self.edit_area.clear()
+            self.title_edit.clear()
+            self.cta_edit.clear()
+            self.hashtags_edit.clear()
+            self.presentation_media_path = None
+            self.presentation_media_type = None
+            self.media_status_label.setText("Sin media seleccionado")
+            self.media_status_label.setStyleSheet("color: gray; font-style: italic;")
+            self.update_preview()
+        else:
+            self.status_label.setText("❌ Error en publicación")
+            self.status_label.setStyleSheet("color: red; font-weight: bold;")
+            QMessageBox.critical(self, "Error", message)
+
+
+
+    def insert_emoji_voice_title(self):
+        """Insert emoji into voice title field"""
+        if EmojiPicker:
+            picker = EmojiPicker(self)
+            if picker.exec():
+                emoji = picker.selected_emoji
+                if emoji:
+                    cursor = self.voice_title_edit.cursorPosition()
+                    text = self.voice_title_edit.text()
+                    self.voice_title_edit.setText(text[:cursor] + emoji + text[cursor:])
+                    self.voice_title_edit.setCursorPosition(cursor + len(emoji))
+        else:
+            QMessageBox.information(self, "Info", "Función de emoji no disponible")
 
     def format_telegram_post(self, text):
-        """Format text for Telegram preview (from AI Generator)"""
+        """Format text for Telegram preview (same logic as AI Generator)"""
         lines = text.splitlines()
         formatted = []
-        in_code_block = False
-        
-        for line in lines:
-            stripped = line.rstrip()
-            
-            # Detect code blocks with ```
-            if stripped.startswith("```"):
-                if not in_code_block:
-                    formatted.append("<pre>")
-                    in_code_block = True
-                else:
-                    formatted.append("</pre>")
-                    in_code_block = False
-                continue
-            
-            # Detect indented lines as code (4 spaces or tab)
-            if not in_code_block and (line.startswith("    ") or line.startswith("\t")):
-                formatted.append("<pre>")
-                in_code_block = True
-            
-            if in_code_block and not (line.startswith("    ") or line.startswith("\t")) and not stripped.startswith("```"):
-                formatted.append("</pre>")
-                in_code_block = False
-            
-            if in_code_block:
-                formatted.append(stripped)
-                continue
-            
-            # Title formatting
-            if stripped.startswith("Título:") or (stripped.isupper() and len(stripped) > 3):
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            # Título: primera línea, o línea en mayúsculas, o que empieza con "Título:"
+            if idx == 0 or stripped.startswith("Título:") or (stripped.isupper() and len(stripped) > 3):
                 title = stripped.replace("Título:", "").strip()
                 if title:
                     formatted.append(f"<b>{title}</b>")
                 continue
-            
-            # Subtitle formatting
+            # Subtítulo: línea que empieza con "Subtítulo:"
             if stripped.startswith("Subtítulo:"):
                 subtitle = stripped.replace("Subtítulo:", "").strip()
                 if subtitle:
                     formatted.append(f"<b>{subtitle}</b>")
                 continue
-            
-            # List formatting
+            # Listas: líneas que empiezan con "- " o "* "
             if stripped.startswith("- ") or stripped.startswith("* "):
                 formatted.append(f"• {stripped[2:]}")
                 continue
-            
-            # URL formatting
+            # Enlaces: http/https
             if "http://" in stripped or "https://" in stripped:
                 url_pattern = r'(https?://\S+)'
                 def repl(m):
@@ -1019,237 +1140,86 @@ class PublishTab(QWidget):
                 line = re.sub(url_pattern, repl, stripped)
                 formatted.append(line)
                 continue
-            
-            # Empty line
+            # Línea vacía
             if not stripped:
                 formatted.append("")
                 continue
-            
-            # Code formatting
+            # Código: empieza con 4 espacios o ```
             if stripped.startswith("```") or stripped.startswith("    "):
                 code = stripped.replace("```", "").strip()
                 formatted.append(f"<code>{code}</code>")
                 continue
-            
-            # Normal text
+            # Por defecto, texto normal
             formatted.append(stripped)
-        
-        if in_code_block:
-            formatted.append("</pre>")
-        
         return "<br>".join(formatted)
-    # ==================== UI EVENT HANDLERS ====================
-    
-    def select_voice_file(self):
-        """Select voice file for premium audio"""
-        file, _ = QFileDialog.getOpenFileName(
-            self,
-            "Seleccionar Audio Premium",
-            "",
-            "Audio Files (*.mp3 *.wav *.m4a *.ogg *.flac *.wma *.aac);;All Files (*)"
-        )
-        if file:
-            self.voice_selected_file = file
-            filename = os.path.basename(file)
-            file_size = os.path.getsize(file) / (1024 * 1024)  # MB
-            self.voice_file_label.setText(f"🎵 {filename} ({file_size:.1f} MB)")
-            self.voice_file_label.setStyleSheet("color: green; font-weight: bold;")
 
-    def update_character_counter(self):
-        """Update character counter for content"""
-        text = self.edit_area.toPlainText()
-        char_count = len(text)
-        word_count = len(text.split()) if text.strip() else 0
-        
-        # Telegram message limit is 4096 characters
-        max_chars = 4096
-        
-        if char_count > max_chars:
-            self.char_counter.setText(f"⚠️ {char_count}/{max_chars} caracteres ({word_count} palabras)")
-            self.char_counter.setStyleSheet("color: red; font-weight: bold;")
-        elif char_count > max_chars * 0.9:
-            self.char_counter.setText(f"⚠️ {char_count}/{max_chars} caracteres ({word_count} palabras)")
-            self.char_counter.setStyleSheet("color: orange; font-weight: bold;")
-        else:
-            self.char_counter.setText(f"{char_count} caracteres ({word_count} palabras)")
-            self.char_counter.setStyleSheet("color: gray; font-size: 11px;")
-
-    def connect_all_events(self):
-        """Connect all UI events"""
-        # Already connected in setup methods, but ensure all are connected
-        if hasattr(self, 'title_edit'):
-            self.title_edit.textChanged.connect(self.update_preview)
-        if hasattr(self, 'edit_area'):
-            self.edit_area.textChanged.connect(self.update_preview)
-            self.edit_area.textChanged.connect(self.update_character_counter)
-        if hasattr(self, 'cta_edit'):
-            self.cta_edit.textChanged.connect(self.update_preview)
-        if hasattr(self, 'hashtags_edit'):
-            self.hashtags_edit.textChanged.connect(self.update_preview)
-
-    # ==================== PUBLISHING LOGIC ====================
-    
-    def publish_post(self):
-        """Professional publishing with detailed progress logging"""
-        if self.worker and self.worker.isRunning():
-            QMessageBox.warning(self, "Aviso", "Ya hay una publicación en proceso")
-            return
-        
-        # Validate content
-        title = self.title_edit.text().strip()
-        content = self.edit_area.toPlainText().strip()
-        
-        if not title and not content:
-            QMessageBox.warning(self, "Error", "Debes escribir al menos un título o contenido")
-            return
-        
-        # Validate Telegram configuration
-        if not hasattr(self.config, 'telegram_token') or not self.config.telegram_token:
-            QMessageBox.critical(self, "Error", "Configura primero el token de Telegram en la pestaña Admin Channels")
-            return
-        if not hasattr(self.config, 'telegram_chat_id') or not self.config.telegram_chat_id:
-            QMessageBox.critical(self, "Error", "Configura primero el chat ID de Telegram en la pestaña Admin Channels")
-            return
-        
-        # Prepare post data
-        post_data = self.prepare_post_data()
-        
-        # Show progress and disable button
-        self.show_progress(True)
-        self.publish_button.setEnabled(False)
-        
-        # Create and start worker
-        self.worker = PublishWorker(post_data, self.config)
-        self.worker.progress.connect(self.on_progress)
-        self.worker.finished.connect(self.on_publish_finished)
-        self.worker.start()
-
-    def prepare_post_data(self):
-        """Prepare all post data for flexible publishing"""
+    def update_post_statistics(self):
+        """Update real-time post statistics"""
+        # Calcular caracteres totales
         title = self.title_edit.text().strip()
         content = self.edit_area.toPlainText().strip()
         cta = self.cta_edit.text().strip()
         hashtags = self.hashtags_edit.text().strip()
         
-        # Main content (for media caption or standalone message)
-        main_content = ""
-        if title and content:
-            main_content = f"<b>{title}</b>\n\n{content}"
-        elif title:
-            main_content = f"<b>{title}</b>"
-        elif content:
-            main_content = content
+        full_text = ""
+        if title:
+            full_text += title + "\n\n"
+        if content:
+            full_text += content
+        if cta or hashtags:
+            full_text += "\n\n"
+        if cta:
+            full_text += cta
+        if hashtags:
+            if cta:
+                full_text += "\n" + hashtags
+            else:
+                full_text += hashtags
         
-        # CTA and hashtags (separate from main content)
-        cta_hashtags = ""
-        if cta and hashtags:
-            cta_hashtags = f"🎯 {cta}\n\n{hashtags}"
-        elif cta:
-            cta_hashtags = f"🎯 {cta}"
-        elif hashtags:
-            cta_hashtags = hashtags
+        char_count = len(full_text)
+        word_count = len([word for word in full_text.split() if word])
         
-        # Button markup (always separate)
-        reply_markup = None
-        if self.telegram_buttons and any(self.telegram_buttons):
-            keyboard = []
-            for row in self.telegram_buttons:
-                row_buttons = []
-                for btn in row:
-                    if isinstance(btn, dict) and "text" in btn and "url" in btn:
-                        row_buttons.append({"text": btn["text"], "url": btn["url"]})
-                if row_buttons:
-                    keyboard.append(row_buttons)
-            if keyboard:
-                reply_markup = json.dumps({"inline_keyboard": keyboard})
-        
-        # Voice data - only include if file exists
-        voice_data = {}
-        if self.voice_selected_file and os.path.exists(self.voice_selected_file):
-            voice_data.update({
-                'voice_file': self.voice_selected_file,
-                'voice_title': self.voice_title_edit.text().strip(),
-                'voice_description': self.voice_description_edit.toPlainText().strip(),
-                'voice_quality': 'ultra'  # Always maximum quality
-            })
-        
-        return {
-            'main_content': main_content.strip() if main_content else None,
-            'presentation_path': self.presentation_media_path,
-            'presentation_type': self.presentation_media_type,
-            'cta_hashtags': cta_hashtags.strip() if cta_hashtags else None,
-            'reply_markup': reply_markup,
-            **voice_data
-        }
-
-    def show_progress(self, show):
-        """Show/hide progress indicators"""
-        self.progress_bar.setVisible(show)
-        self.progress_log.setVisible(show)
-        if show:
-            self.progress_bar.setRange(0, 0)  # Indeterminate
-            self.progress_log.clear()
-            self.log_message("🚀 Iniciando publicación...")
-
-    def log_message(self, message):
-        """Add message to progress log"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] {message}"
-        if hasattr(self, 'progress_log'):
-            self.progress_log.append(formatted_message)
-            # Auto-scroll
-            scrollbar = self.progress_log.verticalScrollBar()
-            scrollbar.setValue(scrollbar.maximum())
-
-    def on_progress(self, message):
-        """Handle progress updates"""
-        self.log_message(message)
-
-    def on_publish_finished(self, success, message):
-        """Handle publishing completion"""
-        self.show_progress(False)
-        self.publish_button.setEnabled(True)
-        
-        if success:
-            self.log_message("✅ Publicación completada exitosamente")
-            QMessageBox.information(self, "✅ Éxito", message)
-            self.clear_form_after_success()
+        # Actualizar labels de estadísticas
+        self.current_chars_label.setText(f"{char_count}/4096")
+        if char_count > 4096:
+            self.current_chars_label.setStyleSheet("color: red; font-weight: bold;")
+        elif char_count > 3500:
+            self.current_chars_label.setStyleSheet("color: orange; font-weight: bold;")
         else:
-            self.log_message(f"❌ Error en publicación: {message}")
-            QMessageBox.critical(self, "❌ Error", message)
-
-    def clear_form_after_success(self):
-        """Clear form after successful publishing"""
-        reply = QMessageBox.question(
-            self, 
-            "Limpiar Formulario", 
-            "¿Deseas limpiar el formulario para crear un nuevo post?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
+            self.current_chars_label.setStyleSheet("color: green;")
         
-        if reply == QMessageBox.StandardButton.Yes:
-            self.title_edit.clear()
-            self.edit_area.clear()
-            self.cta_edit.clear()
-            self.hashtags_edit.clear()
+        self.current_words_label.setText(str(word_count))
+        
+        # Actualizar info de media
+        if self.presentation_media_path:
+            filename = os.path.basename(self.presentation_media_path)
+            file_size = os.path.getsize(self.presentation_media_path) / (1024 * 1024)  # MB
+            self.current_media_label.setText(f"{filename} ({file_size:.1f} MB)")
             
-            # Clear media
-            self.presentation_media_path = None
-            self.presentation_media_type = None
-            self.media_status_label.setText("Sin media seleccionado")
-            self.media_status_label.setStyleSheet("color: gray; font-style: italic;")
-            
-            # Clear voice
-            self.voice_selected_file = None
-            self.voice_title_edit.clear()
-            self.voice_description_edit.clear()
-            self.voice_file_label.setText("Ningún archivo seleccionado")
-            self.voice_file_label.setStyleSheet("color: gray; font-style: italic;")
-            
-            # Clear buttons
-            self.telegram_buttons = [[]]
-            
-            # Update preview
-            self.update_preview()
+            # Verificar límites de tamaño
+            if self.presentation_media_type == "photo" and file_size > 10:
+                self.current_media_label.setStyleSheet("color: red; font-weight: bold;")
+            elif self.presentation_media_type in ["video", "animation"] and file_size > 50:
+                self.current_media_label.setStyleSheet("color: red; font-weight: bold;")
+            else:
+                self.current_media_label.setStyleSheet("color: green;")
+        else:
+            self.current_media_label.setText("Ninguno")
+            self.current_media_label.setStyleSheet("color: gray;")
+        
+        # Contar botones configurados
+        button_count = 0
+        if self.telegram_buttons and any(self.telegram_buttons):
+            for row in self.telegram_buttons:
+                if row:
+                    for btn in row:
+                        if isinstance(btn, dict) and "text" in btn and btn["text"].strip():
+                            button_count += 1
+        
+        self.current_buttons_label.setText(str(button_count))
+        if button_count > 0:
+            self.current_buttons_label.setStyleSheet("color: green; font-weight: bold;")
+        else:
+            self.current_buttons_label.setStyleSheet("color: gray;")
 
 

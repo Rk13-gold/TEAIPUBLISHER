@@ -135,3 +135,12 @@ async def handle_voice_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if os.path.exists(temp_file):
                 os.remove(temp_file)
                 logging.info(f"Eliminado: {temp_file}")
+
+def get_audio_quality_settings():
+    """Get audio quality settings for voice notes"""
+    return {
+        "low": {"bitrate": "32k", "name": "Básico (32k) - Para voz simple"},
+        "medium": {"bitrate": "64k", "name": "Estándar (64k) - Calidad buena"},
+        "high": {"bitrate": "96k", "name": "Alta (96k) - Calidad premium"},
+        "ultra": {"bitrate": "128k", "name": "Ultra (128k) - Máxima calidad para voz"}
+    }
