@@ -670,23 +670,7 @@ class PublishTab(QWidget):
         self.emoji_btn.clicked.connect(self.insert_emoji_content)
         buttons_layout.addWidget(self.emoji_btn)
         
-        # Publish button
-        self.publish_btn = QPushButton("🚀 Publicar")
-        self.publish_btn.setFixedHeight(28)
-        self.publish_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #0078d4;
-                font-weight: bold;
-                padding: 0 12px;
-                min-width: 100px;
-            }
-            QPushButton:hover {
-                background-color: #106ebe;
-            }
-        """)
-        self.publish_btn.clicked.connect(self.publish_post)
-        buttons_layout.addWidget(self.publish_btn)
-        
+        buttons_layout.addStretch()
         editor_layout.addLayout(buttons_layout)
         publish_layout = QHBoxLayout()
         self.publish_button = QPushButton("🚀 PUBLICAR EN TELEGRAM")

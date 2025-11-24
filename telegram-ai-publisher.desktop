@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Telegram AI Publisher
+Comment=Agiliza la publicación asistida con IA en Telegram
+Exec=/usr/bin/python3 /home/sebas/RK13/telegram-ai-publisher/main.py
+Path=/home/sebas/RK13/telegram-ai-publisher
+Icon=/home/sebas/RK13/telegram-ai-publisher/assets/icons/logo.svg
+Terminal=false
+Categories=Utility;Development;

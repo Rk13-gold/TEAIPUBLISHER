@@ -1,10 +1,11 @@
 from PySide6.QtWidgets import (QMainWindow, QTabWidget, QMessageBox, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QPushButton, QFrame, QApplication, QScrollArea, 
                              QSizePolicy, QStyle, QStyleOption, QToolButton, QMenuBar, QMenu,
-                             QGroupBox, QLineEdit, QStyle)
+                             QGroupBox, QLineEdit, QStyle, QSystemTrayIcon)
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QFont, QPixmap, QPalette, QColor
 from datetime import datetime
+from pathlib import Path
 
 # Importar las pestañas
 from gui.publish_tab import PublishTab
@@ -14,7 +15,7 @@ from gui.simple_admin_channels_tab import SimpleAdminChannelsTab
 from gui.simple_channel_tab import SimpleChannelTab
 
 class MainWindow(QMainWindow):
-    def __init__(self, config):
+    def __init__(self, config, icon_path: str | None = None):
         super().__init__()
         self.config = config
         self.setWindowTitle("🚀 Telegram AI Publisher Pro")
@@ -32,7 +33,11 @@ class MainWindow(QMainWindow):
             int(height)
         )
         
-        self.setWindowIcon(QIcon("assets/icons/app_icon.svg"))
+        icons_dir = Path(__file__).resolve().parents[1] / "assets" / "icons"
+        default_icon = icons_dir / "app_icon.svg"
+        resolved_icon = Path(icon_path).resolve() if icon_path else default_icon
+        self.setWindowIcon(QIcon(str(resolved_icon)))
+        self._setup_tray_icon(resolved_icon)
         
         # Configurar políticas de tamaño
         self.setMinimumSize(1024, 600)  # Tamaño mínimo razonable
@@ -53,6 +58,30 @@ class MainWindow(QMainWindow):
         
         # Setup status updates
         self.setup_status_timer()
+
+    def _setup_tray_icon(self, icon_path: Path):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray_icon = None
+            return
+
+        self.tray_icon = QSystemTrayIcon(QIcon(str(icon_path)), self)
+        self.tray_icon.setToolTip("Telegram AI Publisher Pro")
+
+        tray_menu = QMenu()
+        restore_action = QAction("Mostrar", self)
+        restore_action.triggered.connect(self.restore_from_tray)
+        tray_menu.addAction(restore_action)
+
+        quit_action = QAction("Salir", self)
+        quit_action.triggered.connect(QApplication.instance().quit)
+        tray_menu.addAction(quit_action)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.show()
+
+    def restore_from_tray(self):
+        self.showNormal()
+        self.activateWindow()
 
     def apply_modern_theme(self):
         """Apply modern dark theme from central stylesheet"""
