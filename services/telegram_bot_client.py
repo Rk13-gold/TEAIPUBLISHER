@@ -35,7 +35,7 @@ class TelegramBotClient:
         self.session = requests.Session()
         self.session.timeout = 30
     
-    def _make_request(self, method: str, params: Dict = None) -> Optional[Dict]:
+    def _make_request(self, method: str, params: Dict = None, *, raise_on_error: bool = False) -> Optional[Dict]:
         """Make a request to Telegram Bot API"""
         try:
             url = f"{self.base_url}/{method}"
@@ -47,10 +47,14 @@ class TelegramBotClient:
                 return data.get('result')
             else:
                 logger.error(f"Bot API error: {data.get('description')}")
+                if raise_on_error:
+                    raise RuntimeError(data.get('description'))
                 return None
                 
         except Exception as e:
             logger.error(f"Request error for {method}: {e}")
+            if raise_on_error:
+                raise
             return None
     
     def get_chat_info(self, chat_id: str) -> Optional[BotChannelInfo]:
@@ -185,7 +189,7 @@ class TelegramBotClient:
         except Exception as e:
             logger.error(f"Error checking bot permissions for {chat_id}: {e}")
             return {}
-    
+
     def get_bot_info(self) -> Dict:
         """Get information about the bot"""
         return self._make_request('getMe') or {}
@@ -197,3 +201,55 @@ class TelegramBotClient:
             return bool(result and result.get('id'))
         except:
             return False
+
+    def get_administered_chats(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Return channels/groups seen via updates where the bot participates."""
+
+        def _extract_chat(update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            for key in ('message', 'edited_message', 'channel_post', 'edited_channel_post'):
+                block = update.get(key)
+                if block and isinstance(block, dict):
+                    chat_data = block.get('chat')
+                    if chat_data:
+                        return chat_data
+            for key in ('my_chat_member', 'chat_member'):
+                block = update.get(key)
+                if block and isinstance(block, dict):
+                    chat_data = block.get('chat')
+                    if chat_data:
+                        return chat_data
+            return None
+
+        try:
+            params = {
+                'limit': limit,
+                'allowed_updates': '["message","edited_message","channel_post","edited_channel_post","my_chat_member","chat_member"]',
+            }
+            updates = self._make_request('getUpdates', params, raise_on_error=True) or []
+            chats: Dict[int, Dict[str, Any]] = {}
+
+            for update in updates:
+                chat_block = _extract_chat(update)
+                if not chat_block:
+                    continue
+
+                chat_type = chat_block.get('type')
+                if chat_type not in {'channel', 'supergroup', 'group'}:
+                    continue
+
+                chat_id = chat_block.get('id')
+                if not chat_id:
+                    continue
+
+                chats[chat_id] = {
+                    'id': chat_id,
+                    'title': chat_block.get('title', 'Sin título'),
+                    'type': chat_type,
+                    'username': chat_block.get('username', ''),
+                }
+
+            return list(chats.values())
+
+        except Exception as exc:
+            logger.error(f"Error fetching administered chats: {exc}")
+            raise

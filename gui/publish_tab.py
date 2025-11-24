@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QTextEdit, QLineEdit,
     QPushButton, QMessageBox, QLabel, QFileDialog, QSizePolicy, QProgressBar,
     QComboBox, QFrame, QFormLayout, QApplication, QCheckBox, QSpinBox, QDateTimeEdit,
-    QGridLayout
+    QGridLayout, QStyle, QScrollArea
 )
 
 from PySide6.QtCore import Qt, QThread, Signal, QDateTime
@@ -349,29 +349,9 @@ class PublishWorker(QThread):
                 self.progress.emit("⚠️ No hay botones para enviar")
                 return True  # Not an error, just no buttons
             
-            # Arsenal de frases psicológicas poderosas (importado desde archivo externo)
-            try:
-                from psychological_phrases import psychological_phrases
-                self.progress.emit(f"✅ Arsenal de {len(psychological_phrases)} frases psicológicas cargado")
-            except ImportError:
-                # Fallback con algunas frases si el archivo no está disponible
-                psychological_phrases = [
-                    "🤔 El momento de la verdad ha llegado... ¿Cuál de estas opciones cambiará tu destino para siempre?",
-                    "🎯 Tres caminos se abren ante ti, solo uno te llevará al éxito que tanto deseas alcanzar hoy",
-                    "🔍 La respuesta que has estado buscando durante tanto tiempo está escondida detrás de uno de estos botones",
-                    "⚡ Tu futuro se decide ahora mismo con un simple clic... ¿Estás preparado para esta transformación total?",
-                    "🧠 Miles de personas ya eligieron su destino aquí, ahora es tu turno de unirte a los ganadores",
-                    "⏰ Solo quedan pocas horas para acceder a esta información que podría cambiar tu vida completamente para siempre",
-                    "🔥 Esta oportunidad única desaparecerá muy pronto, no dejes que otros tomen tu lugar en el éxito absoluto",
-                    "💎 El acceso exclusivo que todos quieren obtener está aquí, pero no estará disponible para siempre",
-                    "🚨 Último momento para descubrir el secreto que los más exitosos han estado guardando celosamente durante años",
-                    "👑 Únete a los miles de personas exitosas que ya descubrieron el poder de estas estrategias comprobadas"
-                ]
-                self.progress.emit("⚠️ Usando frases de fallback (archivo psychological_phrases.py no encontrado)")
-            
-            # Seleccionar frase aleatoria
-            text = random.choice(psychological_phrases)
-            self.progress.emit(f"🎯 Usando frase psicológica: '{text[:50]}...'")
+            # Mensaje fijo que dirige al menú de botones
+            text = "📋 Menú de opciones: usa los botones para elegir la acción que prefieras."
+            self.progress.emit("🎯 CTA fijo para menú de opciones aplicado")
             
             url = f"https://api.telegram.org/bot{token}/sendMessage"
             data = {
@@ -446,6 +426,7 @@ class PublishTab(QWidget):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
+        self.setObjectName("publish_tab")
         self.setWindowTitle("🚀 Publicar en Telegram")
 
         # State variables
@@ -459,117 +440,254 @@ class PublishTab(QWidget):
         # Audio quality settings
         self.audio_quality_settings = get_audio_quality_settings()
         
-        # Main layout with 3 equal sections
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(12, 12, 12, 12)
-        main_layout.setSpacing(16)
+        # Layout principal con scroll
+        container_widget = QWidget()
+        main_layout = QHBoxLayout(container_widget)
+        main_layout.setContentsMargins(4, 4, 4, 4)
+        main_layout.setSpacing(6)
         
-        # Section 1: Content Configuration (Left)
-        self.setup_content_configuration_section(main_layout)
+        # Sección izquierda - Configuración de contenido
+        left_group = QGroupBox("Configuración de Contenido")
+        left_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        left_layout = QVBoxLayout(left_group)
+        left_layout.setContentsMargins(4, 4, 4, 4)
+        left_layout.setSpacing(4)
+        self.setup_content_configuration_section(left_layout)
         
-        # Section 2: Post Editor (Center) - Using AI Generator editor
-        self.setup_post_editor_section(main_layout)
+        # Sección central - Editor de publicaciones
+        center_group = QGroupBox("Editor de Publicación")
+        center_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        center_layout = QVBoxLayout(center_group)
+        center_layout.setContentsMargins(4, 4, 4, 4)
+        center_layout.setSpacing(4)
+        self.setup_post_editor_section(center_layout)
         
-        # Section 3: Preview and Publishing (Right)
-        self.setup_preview_publishing_section(main_layout)
+        # Sección derecha - Vista previa
+        right_group = QGroupBox("Vista Previa")
+        right_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        right_layout = QVBoxLayout(right_group)
+        right_layout.setContentsMargins(4, 4, 4, 4)
+        right_layout.setSpacing(4)
+        self.setup_preview_publishing_section(right_layout)
         
+        # Configurar tamaños mínimos y máximos
+        left_group.setMinimumWidth(240)
+        left_group.setMaximumWidth(300)
+        right_group.setMinimumWidth(240)
+        right_group.setMaximumWidth(300)
+        
+        # Añadir widgets al layout principal con factores de estiramiento
+        main_layout.addWidget(left_group, 1)    # Sección izquierda - 1/4 del ancho
+        main_layout.addWidget(center_group, 2)  # Sección central - 2/4 del ancho
+        main_layout.addWidget(right_group, 1)   # Sección derecha - 1/4 del ancho
+
+        # Scroll area para toda la pestaña
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(container_widget)
+
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.addWidget(scroll_area)
+
         # Connect events
         self.connect_all_events()
 
-    def setup_content_configuration_section(self, main_layout):
+    def setup_content_configuration_section(self, parent_layout):
         """Setup left section: Content Configuration"""
-        config_group = QGroupBox("⚙️ Configuración de Contenido")
-        config_layout = QVBoxLayout()
-        config_layout.setSpacing(12)
+        # Configurar el layout principal
+        parent_layout.setSpacing(6)
+        parent_layout.setContentsMargins(4, 4, 4, 4)
         
-        # Voice note section (premium feature)
-        self.setup_voice_note_section(config_layout)
+        # Media selection
+        media_group = QGroupBox("Medios")
+        media_layout = QVBoxLayout(media_group)
+        media_layout.setSpacing(4)
+        media_layout.setContentsMargins(4, 8, 4, 4)
         
-        # CTA and hashtags section
-        self.setup_cta_hashtags_section(config_layout)
+        # Add media selection button
+        self.btn_select_media = QPushButton("Seleccionar Imagen/Video")
+        try:
+            from PySide6.QtWidgets import QStyle
+            app_style = QApplication.style()
+            file_icon = app_style.standardIcon(QStyle.SP_FileIcon)
+            self.btn_select_media.setIcon(file_icon)
+        except Exception as e:
+            print(f"Warning al cargar el ícono: {e}")
+        media_layout.addWidget(self.btn_select_media)
         
-        # Publishing status and parameters section (expanded)
-        self.setup_publishing_status_section(config_layout)
+        # Media info label
+        self.lbl_media_info = QLabel("Ningún archivo seleccionado")
+        self.lbl_media_info.setWordWrap(True)
+        self.lbl_media_info.setStyleSheet("color: #888; font-style: italic; font-size: 9px;")
+        media_layout.addWidget(self.lbl_media_info)
+        # Backwards compatibility alias used elsewhere
+        self.media_status_label = self.lbl_media_info
         
-        config_group.setLayout(config_layout)
-        config_group.setMinimumWidth(350)
-        config_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        main_layout.addWidget(config_group, 1) # Equal width
+        # Add media group to parent layout
+        parent_layout.addWidget(media_group)
+        
+        # Add voice note section
+        voice_group = QGroupBox("Nota de Voz")
+        voice_layout = QVBoxLayout(voice_group)
+        voice_layout.setSpacing(4)
+        voice_layout.setContentsMargins(4, 8, 4, 4)
+        
+        # Add voice note button
+        self.btn_select_voice = QPushButton("Seleccionar Audio")
+        try:
+            from PySide6.QtWidgets import QStyle
+            app_style = QApplication.style()
+            audio_icon = app_style.standardIcon(QStyle.SP_MediaVolume)
+            self.btn_select_voice.setIcon(audio_icon)
+        except Exception as e:
+            print(f"Warning al cargar el ícono de audio: {e}")
+        voice_layout.addWidget(self.btn_select_voice)
+        
+        # Voice info label
+        self.lbl_voice_info = QLabel("Ningún archivo de audio seleccionado")
+        self.lbl_voice_info.setWordWrap(True)
+        self.lbl_voice_info.setStyleSheet("color: #888; font-style: italic; font-size: 9px;")
+        voice_layout.addWidget(self.lbl_voice_info)
+        
+        # Add voice group to parent layout
+        parent_layout.addWidget(voice_group)
+        
+        # CTA & Hashtags Group
+        cta_group = QGroupBox("Llamado a la acción")
+        cta_layout = QVBoxLayout(cta_group)
+        cta_layout.setSpacing(4)
+        cta_layout.setContentsMargins(4, 8, 4, 4)
+        
+        # CTA Input
+        self.cta_input = QLineEdit()
+        self.cta_input.setPlaceholderText("Ej: ¡Visita nuestro sitio web!")
+        cta_layout.addWidget(QLabel("Texto del CTA:"))
+        cta_layout.addWidget(self.cta_input)
+        # Legacy alias used elsewhere
+        self.cta_edit = self.cta_input
+        
+        # Hashtags Input
+        self.hashtags_input = QLineEdit()
+        self.hashtags_input.setPlaceholderText("#ejemplo #otro")
+        cta_layout.addWidget(QLabel("Hashtags:"))
+        cta_layout.addWidget(self.hashtags_input)
+        # Legacy alias used elsewhere
+        self.hashtags_edit = self.hashtags_input
+        
+        # Add CTA group to parent layout
+        parent_layout.addWidget(cta_group)
+        
+        # Add stretch to push everything up
+        parent_layout.addStretch(1)
+        
+        # Connect signals
+        self.btn_select_media.clicked.connect(self.select_image_for_preview)
+        self.btn_select_voice.clicked.connect(self.select_voice_file)
+        self.cta_input.textChanged.connect(self.update_preview)
+        self.hashtags_input.textChanged.connect(self.update_preview)
+        
+        # Publishing Status & Parameters
+        self.setup_publishing_status_section(parent_layout)
+        
+        # Add stretch to push content to the top
+        parent_layout.addStretch()
 
-    def setup_post_editor_section(self, main_layout):
+    def setup_post_editor_section(self, parent_layout):
         """Setup center section: Post Editor (using AI Generator structure)"""
         editor_group = QGroupBox("✍️ Editor de Post")
         editor_layout = QVBoxLayout()
-        editor_layout.setSpacing(8)
+        editor_layout.setSpacing(6)
+        editor_layout.setContentsMargins(8, 8, 8, 8)
+        editor_group.setLayout(editor_layout)
+        editor_group.setStyleSheet("""
+            QGroupBox {
+                border: 1px solid #333333;
+                border-radius: 4px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
 
         # Title and image selection row (from AI Generator)
         title_img_layout = QHBoxLayout()
+        title_img_layout.setSpacing(4)
+        
+        # Title label and field
+        title_label = QLabel("Título:")
+        title_label.setFixedWidth(40)
+        title_img_layout.addWidget(title_label)
+        
         self.title_edit = QLineEdit()
         self.title_edit.setPlaceholderText("Título del post")
         self.title_edit.textChanged.connect(self.update_preview)
-        self.title_edit.textChanged.connect(self.update_post_statistics)
-        title_img_layout.addWidget(QLabel("📝 Título:"))
-        title_img_layout.addWidget(self.title_edit, 2)
-        
-        # Emoji button for title (from AI Generator)
-        self.title_emoji_btn = QPushButton("�")
-        self.title_emoji_btn.setFixedWidth(24)
-        self.title_emoji_btn.setFont(QFont("Segoe UI Emoji", 18))
+        title_img_layout.addWidget(self.title_edit, 1)  # Takes remaining space
+
+        # Emoji button for title
+        self.title_emoji_btn = QPushButton("😊")
+        self.title_emoji_btn.setFixedSize(28, 28)
         self.title_emoji_btn.setProperty("class", "emoji-btn")
-        self.title_emoji_btn.setStyleSheet("color: none; background: none; border: none;")
+        self.title_emoji_btn.setToolTip("Insertar emoji en el título")
         self.title_emoji_btn.clicked.connect(self.insert_emoji_title)
-        title_img_layout.addWidget(self.title_emoji_btn, 0)
-        
+        title_img_layout.addWidget(self.title_emoji_btn)
 
-
-        # Image button (from AI Generator)
-        self.image_btn = QPushButton("📷 Media")
-        self.image_btn.setToolTip("Seleccionar imagen/video/GIF para el post")
+        # Image selection button
+        self.image_btn = QPushButton("📷")
+        self.image_btn.setFixedSize(28, 28)
+        self.image_btn.setToolTip("Seleccionar imagen/vídeo/GIF")
         self.image_btn.clicked.connect(self.select_image_for_preview)
-        title_img_layout.addWidget(self.image_btn, 0)
-        
+        title_img_layout.addWidget(self.image_btn)
+
         editor_layout.addLayout(title_img_layout)
-        
-        # Media status label
-        self.media_status_label = QLabel("Sin media seleccionado")
-        self.media_status_label.setStyleSheet("color: gray; font-style: italic;")
-        editor_layout.addWidget(self.media_status_label)
-        
-        # Main editing area (from AI Generator)
-        self.edit_area = QTextEdit()
-        self.edit_area.setPlaceholderText("Escribe aquí el contenido del post para Telegram...")
-        self.edit_area.textChanged.connect(self.update_preview)
-        self.edit_area.textChanged.connect(self.update_character_counter)
-        editor_layout.addWidget(self.edit_area)
 
-        # Editor tools row (from AI Generator)
-        buttons_row = QHBoxLayout()
+        # Content editor
+        self.content_edit = QTextEdit()
+        self.content_edit.setPlaceholderText("Escribe el contenido del post aquí...")
+        self.content_edit.textChanged.connect(self.update_preview)
+        editor_layout.addWidget(self.content_edit, 1)  # Takes all available space
+        # Legacy attribute name compatibility
+        self.edit_area = self.content_edit
+
+        # Buttons row
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(4)
         
-        # Button config (from AI Generator)
-        self.button_config_btn = QPushButton("🔗 Agregar botones")
+        # Button configuration
+        self.button_config_btn = QPushButton("🛠 Botones")
+        self.button_config_btn.setToolTip("Configurar botones del mensaje")
         self.button_config_btn.clicked.connect(self.open_button_config)
-        buttons_row.addWidget(self.button_config_btn)
+        buttons_layout.addWidget(self.button_config_btn)
         
-        # Emoji button for content (from AI Generator)
-        self.emoji_btn = QPushButton("�")
-        self.emoji_btn.setFixedWidth(24)
-        self.emoji_btn.setFont(QFont("Segoe UI Emoji", 18))
-        self.emoji_btn.setProperty("class", "emoji-btn")
-        self.emoji_btn.setStyleSheet("color: none; background: none; border: none;")
+        # Emoji button
+        self.emoji_btn = QPushButton("😊")
+        self.emoji_btn.setFixedSize(28, 28)
+        self.emoji_btn.setToolTip("Insertar emoji")
         self.emoji_btn.clicked.connect(self.insert_emoji_content)
-        buttons_row.addWidget(self.emoji_btn)
+        buttons_layout.addWidget(self.emoji_btn)
         
-
-
-        # Character counter (modified from AI Generator)
-        self.char_counter = QLabel("0 caracteres")
-        self.char_counter.setStyleSheet("color: gray; font-size: 11px;")
-        buttons_row.addWidget(self.char_counter)
-        buttons_row.addStretch(1)
+        # Publish button
+        self.publish_btn = QPushButton("🚀 Publicar")
+        self.publish_btn.setFixedHeight(28)
+        self.publish_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0078d4;
+                font-weight: bold;
+                padding: 0 12px;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #106ebe;
+            }
+        """)
+        self.publish_btn.clicked.connect(self.publish_post)
+        buttons_layout.addWidget(self.publish_btn)
         
-        editor_layout.addLayout(buttons_row)
-
-        # Publishing button (modified from AI Generator)
+        editor_layout.addLayout(buttons_layout)
         publish_layout = QHBoxLayout()
         self.publish_button = QPushButton("🚀 PUBLICAR EN TELEGRAM")
         self.publish_button.setMinimumHeight(50)
@@ -577,12 +695,15 @@ class PublishTab(QWidget):
         publish_layout.addWidget(self.publish_button)
         editor_layout.addLayout(publish_layout)
         
+        # Asegurarse de que el grupo del editor tenga el layout configurado
         editor_group.setLayout(editor_layout)
         editor_group.setMinimumWidth(350)
         editor_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        main_layout.addWidget(editor_group, 1) # Equal width
+        
+        # Agregar el grupo al layout padre que se pasó como parámetro
+        parent_layout.addWidget(editor_group, 1)  # Equal width
 
-    def setup_preview_publishing_section(self, main_layout):
+    def setup_preview_publishing_section(self, parent_layout):
         """Setup right section: Preview and Publishing Status"""
         preview_group = QGroupBox("📱 Vista Previa")
         preview_layout = QVBoxLayout()
@@ -613,7 +734,7 @@ class PublishTab(QWidget):
         preview_group.setMinimumWidth(300)
         preview_group.setMaximumWidth(340)
         preview_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        main_layout.addWidget(preview_group, 0)  # Sin expansión
+        parent_layout.addWidget(preview_group, 0)  # Sin expansión
 
     def setup_voice_note_section(self, layout):
         """Setup professional voice note section"""

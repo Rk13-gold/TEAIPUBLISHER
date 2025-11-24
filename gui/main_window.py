@@ -1,20 +1,48 @@
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
+from PySide6.QtWidgets import (QMainWindow, QTabWidget, QMessageBox, QWidget, QVBoxLayout, 
+                             QHBoxLayout, QLabel, QPushButton, QFrame, QApplication, QScrollArea, 
+                             QSizePolicy, QStyle, QStyleOption, QToolButton, QMenuBar, QMenu,
+                             QGroupBox, QLineEdit, QStyle)
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QFont, QPixmap, QPalette, QColor
-from gui.ai_tab import AITab
-from gui.publish_tab import PublishTab
-from gui.metrics_tab import MetricsTab
-from gui.simple_channel_tab import SimpleChannelTab
-from gui.simple_admin_channels_tab import SimpleAdminChannelsTab
 from datetime import datetime
+
+# Importar las pestañas
+from gui.publish_tab import PublishTab
+from gui.ai_tab import AITab
+from gui.metrics_tab import MetricsTab
+from gui.simple_admin_channels_tab import SimpleAdminChannelsTab
+from gui.simple_channel_tab import SimpleChannelTab
 
 class MainWindow(QMainWindow):
     def __init__(self, config):
         super().__init__()
         self.config = config
         self.setWindowTitle("🚀 Telegram AI Publisher Pro")
-        self.setGeometry(100, 100, 1400, 900)
+        
+        # Obtener dimensiones de la pantalla
+        screen = QApplication.primaryScreen().availableGeometry()
+        width = min(1400, screen.width() * 0.9)  # 90% del ancho de la pantalla
+        height = min(900, screen.height() * 0.9)  # 90% del alto de la pantalla
+        
+        # Establecer tamaño inicial centrado
+        self.setGeometry(
+            int((screen.width() - width) / 2),
+            int((screen.height() - height) / 2),
+            int(width),
+            int(height)
+        )
+        
         self.setWindowIcon(QIcon("assets/icons/app_icon.svg"))
+        
+        # Configurar políticas de tamaño
+        self.setMinimumSize(1024, 600)  # Tamaño mínimo razonable
+        
+        # Habilitar el botón de maximizar
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint | 
+                          Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
+        
+        # Conectar el evento de cambio de tamaño
+        self.installEventFilter(self)
         
         # Apply modern dark theme
         self.apply_modern_theme()
@@ -27,39 +55,22 @@ class MainWindow(QMainWindow):
         self.setup_status_timer()
 
     def apply_modern_theme(self):
-        """Apply modern dark theme with professional colors"""
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #1e1e1e;
-                color: #ffffff;
-            }
+        """Apply modern dark theme from central stylesheet"""
+        try:
+            # Get the absolute path to the stylesheet
+            import os
+            from pathlib import Path
             
-            QTabWidget::pane {
-                border: 1px solid #404040;
-                background-color: #2d2d2d;
-                border-radius: 8px;
-            }
+            # Get the directory of the current file
+            current_dir = Path(__file__).parent
+            # Navigate to the styles directory and load main_style.qss
+            style_path = current_dir / 'styles' / 'main_style.qss'
             
-            QTabBar::tab {
-                background-color: #404040;
-                color: #ffffff;
-                padding: 12px 20px;
-                margin-right: 2px;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                font-weight: bold;
-                min-width: 120px;
-            }
+            with open(style_path, 'r') as f:
+                style = f.read()
             
-            QTabBar::tab:selected {
-                background-color: #0078d4;
-                color: #ffffff;
-            }
-            
-            QTabBar::tab:hover {
-                background-color: #505050;
-            }
-            
+            # Add tab-specific styles that should override the base styles
+            tab_styles = """
             /* AI Generation Tab - Blue Theme */
             QTabBar::tab:selected[objectName="ai_tab"] {
                 background-color: #0078d4;
@@ -84,60 +95,145 @@ class MainWindow(QMainWindow):
             QTabBar::tab:selected[objectName="channel_tab"] {
                 background-color: #008080;
             }
+            """
             
-            QMenuBar {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                border-bottom: 1px solid #404040;
-            }
+            # Combine base styles with tab-specific styles
+            self.setStyleSheet(style + tab_styles)
             
-            QMenuBar::item {
-                background-color: transparent;
-                padding: 8px 16px;
-            }
-            
-            QMenuBar::item:selected {
-                background-color: #0078d4;
-                border-radius: 4px;
-            }
-            
-            QMenu {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                border: 1px solid #404040;
-                border-radius: 4px;
-            }
-            
-            QMenu::item {
-                padding: 8px 16px;
-            }
-            
-            QMenu::item:selected {
-                background-color: #0078d4;
-            }
-            
-            QStatusBar {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                border-top: 1px solid #404040;
-            }
-        """)
+        except Exception as e:
+            print(f"Error loading stylesheet: {e}")
+            # Fallback to a basic style if the stylesheet can't be loaded
+            self.setStyleSheet("""
+                QMainWindow {
+                    background-color: #1e1e1e;
+                    color: #ffffff;
+                }
+                QTabWidget::pane {
+                    border: 1px solid #404040;
+                    background-color: #2d2d2d;
+                    border-radius: 8px;
+                }
+                QTabBar::tab {
+                    background-color: #404040;
+                    color: #ffffff;
+                    padding: 8px 16px;
+                    border-top-left-radius: 4px;
+                    border-top-right-radius: 4px;
+                }
+                QTabBar::tab:selected {
+                    background-color: #0078d4;
+                }
+            """)
 
     def _init_ui(self):
         """Initialize the modern UI"""
-        # Create central widget with tabs
+        # Crear widget principal y layout
+        main_widget = QWidget()
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(4, 4, 4, 4)
+        
+        # Crear el widget de pestañas
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.North)
-        self.tabs.setMovable(True)
-        self.tabs.setTabsClosable(False)
-        self.setCentralWidget(self.tabs)
-
-        # Add tabs with modern styling and error handling
+        self.tabs.setDocumentMode(True)
+        self.tabs.setUsesScrollButtons(True)
+        
+        # Configurar la barra de pestañas
+        tab_bar = self.tabs.tabBar()
+        tab_bar.setExpanding(True)
+        tab_bar.setMinimumWidth(self.width() - 20)  # Dejar un pequeño margen
+        
+        # Añadir las pestañas
         self._add_ai_tab()
         self._add_publish_tab()
         self._add_metrics_tab()
         self._add_admin_channels_tab()
         self._add_channel_manager_tab()
+        
+        # Añadir el widget de pestañas al layout principal
+        main_layout.addWidget(self.tabs, 1)  # El 1 es el factor de estiramiento
+        
+        # Configurar el pie de página
+        self.setup_footer(main_layout)
+        
+        # Establecer el widget principal
+        self.setCentralWidget(main_widget)
+        
+        # Configurar la política de tamaño
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        # Conectar señales
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+    
+    def eventFilter(self, obj, event):
+        """Manejar eventos de cambio de tamaño"""
+        from PySide6.QtCore import QEvent
+        
+        try:
+            if event.type() == QEvent.Resize:
+                # Actualizar el ancho mínimo de las pestañas cuando cambia el tamaño
+                if hasattr(self, 'tabs') and self.tabs is not None:
+                    tab_bar = self.tabs.tabBar()
+                    if tab_bar:
+                        tab_bar.setMinimumWidth(self.width())
+                        # Forzar actualización del layout
+                        self.updateGeometry()
+                        QApplication.processEvents()
+            
+            return super().eventFilter(obj, event)
+        except Exception as e:
+            print(f"Error en eventFilter: {e}")
+            return super().eventFilter(obj, event)
+    
+    def on_tab_changed(self, index):
+        """Se llama cuando se cambia de pestaña"""
+        # Forzar la actualización del layout
+        self.updateGeometry()
+        QApplication.processEvents()
+    
+    def setup_footer(self, parent_layout):
+        """Setup status bar with connection info"""
+        footer = QFrame()
+        footer.setFrameShape(QFrame.StyledPanel)
+        footer.setStyleSheet("""
+            QFrame {
+                background-color: #1a1a1a;
+                border-top: 1px solid #333333;
+                padding: 4px 8px;
+            }
+            QLabel {
+                color: #aaaaaa;
+                font-size: 10px;
+                padding: 2px 8px;
+            }
+        """)
+        
+        footer_layout = QHBoxLayout()
+        footer_layout.setContentsMargins(8, 2, 8, 2)
+        footer_layout.setSpacing(10)
+        
+        # Connection status
+        self.status_label = QLabel("🔴 Sin conexión")
+        footer_layout.addWidget(self.status_label)
+        
+        # Bot info
+        self.bot_info = QLabel("🤖 Bot: No conectado")
+        footer_layout.addWidget(self.bot_info)
+        
+        # API status
+        self.api_status = QLabel("🌐 API: Inactiva")
+        footer_layout.addWidget(self.api_status)
+        
+        # Spacer to push items to the left
+        footer_layout.addStretch(1)
+        
+        # Version info
+        self.version_label = QLabel("v1.0.0")
+        footer_layout.addWidget(self.version_label)
+        
+        footer.setLayout(footer_layout)
+        parent_layout.addWidget(footer, 0)  # No stretch, fixed height
         
         # Set default tab
         self.tabs.setCurrentIndex(0)  # Start with AI Generation tab
@@ -158,18 +254,57 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._add_error_tab("🤖 AI Generation", e, "blue")
 
-    def _add_publish_tab(self):
-        """Add Publish tab with green theme"""
+    def _add_publish_tab(self, retry_count=0, max_retries=3):
+        """Add Publish tab with green theme with retry mechanism"""
         try:
+            print("🔍 Intentando cargar la pestaña de publicación...")
+            # Importar aquí para capturar cualquier error de importación
+            from gui.publish_tab import PublishTab
+            
+            # Crear instancia de la pestaña
             self.publish_tab = PublishTab(self.config)
+            
+            # Añadir la pestaña a la interfaz
             tab_index = self.tabs.addTab(self.publish_tab, "🚀 Publish")
             self.tabs.setTabIcon(tab_index, QIcon("🚀"))
             
-            # Set tab properties for theming
+            # Configurar propiedades de la pestaña
             self.tabs.tabBar().setTabData(tab_index, {"theme": "green", "name": "publish_tab"})
+            print("✅ Pestaña de publicación cargada exitosamente")
+            
+        except ImportError as e:
+            error_msg = f"❌ Error de importación: {str(e)}\n\nAsegúrate de que todos los módulos requeridos estén instalados.\nEjecuta: pip install -r requirements.txt"
+            print(error_msg)
+            self._add_error_tab("🚀 Publish", error_msg, "red")
             
         except Exception as e:
-            self._add_error_tab("🚀 Publish", e, "green")
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"❌ Error al cargar la pestaña de publicación: {str(e)}")
+            print(f"🔍 Detalles del error:\n{error_details}")
+            
+            if retry_count < max_retries:
+                # Intentar de nuevo después de un breve retraso
+                from PySide6.QtCore import QTimer
+                delay_ms = 1000 * (retry_count + 1)
+                print(f"⏳ Reintentando en {delay_ms/1000} segundos...")
+                
+                QTimer.singleShot(delay_ms, 
+                               lambda: self.retry_add_publish_tab(retry_count + 1, max_retries))
+            else:
+                error_msg = f"No se pudo cargar la pestaña después de {max_retries} intentos.\n\nError: {str(e)}\n\nDetalles:\n{error_details}"
+                print(f"❌ {error_msg}")
+                self._add_error_tab("🚀 Publish", error_msg, "red")
+    
+    def retry_add_publish_tab(self, retry_count, max_retries):
+        """Método auxiliar para reintentar cargar la pestaña de publicación"""
+        # Eliminar la pestaña de error si existe
+        for i in range(self.tabs.count()):
+            if self.tabs.tabText(i) == "🚀 Publish":
+                self.tabs.removeTab(i)
+                break
+        # Volver a intentar cargar la pestaña
+        self._add_publish_tab(retry_count, max_retries)
 
     def _add_metrics_tab(self):
         """Add Metrics tab with purple theme"""
