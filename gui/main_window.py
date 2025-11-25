@@ -1,11 +1,16 @@
+import logging
+import threading
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlparse
+
+import requests
 from PySide6.QtWidgets import (QMainWindow, QTabWidget, QMessageBox, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QPushButton, QFrame, QApplication, QScrollArea, 
                              QSizePolicy, QStyle, QStyleOption, QToolButton, QMenuBar, QMenu,
                              QGroupBox, QLineEdit, QStyle, QSystemTrayIcon)
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QFont, QPixmap, QPalette, QColor
-from datetime import datetime
-from pathlib import Path
 
 # Importar las pestañas
 from gui.publish_tab import PublishTab
@@ -13,6 +18,9 @@ from gui.ai_tab import AITab
 from gui.metrics_tab import MetricsTab
 from gui.simple_admin_channels_tab import SimpleAdminChannelsTab
 from gui.simple_channel_tab import SimpleChannelTab
+from services.telegram_bot_client import TelegramBotClient
+
+logger = logging.getLogger(__name__)
 
 class MainWindow(QMainWindow):
     def __init__(self, config, icon_path: str | None = None):
@@ -48,6 +56,7 @@ class MainWindow(QMainWindow):
         
         # Conectar el evento de cambio de tamaño
         self.installEventFilter(self)
+        self._footer_update_in_progress = False
         
         # Apply modern dark theme
         self.apply_modern_theme()
@@ -185,6 +194,7 @@ class MainWindow(QMainWindow):
         
         # Configurar el pie de página
         self.setup_footer(main_layout)
+        self._init_footer_status_updates()
         
         # Establecer el widget principal
         self.setCentralWidget(main_widget)
@@ -269,6 +279,115 @@ class MainWindow(QMainWindow):
         
         # Create status bar
         self.statusBar().showMessage("🚀 Telegram AI Publisher Pro - Listo para uso")
+
+    def _init_footer_status_updates(self):
+        """Initialize timers and kick off footer status refresh"""
+        self.footer_update_timer = QTimer(self)
+        self.footer_update_timer.setInterval(60000)  # 1 minuto
+        self.footer_update_timer.timeout.connect(self.refresh_footer_status)
+        self.refresh_footer_status()
+        self.footer_update_timer.start()
+
+    def refresh_footer_status(self):
+        """Refresh footer status without blocking UI"""
+        if self._footer_update_in_progress:
+            return
+        self._footer_update_in_progress = True
+        threading.Thread(target=self._collect_footer_status, daemon=True).start()
+
+    def _collect_footer_status(self):
+        status = {
+            "connection": self._check_network_connection(),
+            "bot": self._get_bot_status(),
+            "api": self._get_api_status(),
+        }
+        QTimer.singleShot(0, lambda s=status: self._apply_footer_status(s))
+
+    def _check_network_connection(self):
+        """Check reachability to Telegram API"""
+        try:
+            response = requests.get("https://api.telegram.org", timeout=5)
+            return {
+                "online": response.ok,
+                "latency_ms": int(response.elapsed.total_seconds() * 1000)
+            }
+        except requests.RequestException as exc:
+            logger.debug("Network status check failed: %s", exc)
+            return {"online": False, "error": str(exc)}
+
+    def _get_bot_status(self):
+        """Validate bot token and fetch bot info"""
+        token = getattr(self.config, "bot_token", None) or getattr(self.config, "telegram_token", None)
+        if not token:
+            return {"connected": False, "reason": "No configurado"}
+        try:
+            client = TelegramBotClient(token)
+            bot_info = client.get_bot_info()
+            if bot_info.get("id"):
+                return {
+                    "connected": True,
+                    "username": bot_info.get("username"),
+                    "name": bot_info.get("first_name")
+                }
+            return {"connected": False, "reason": "Token inválido"}
+        except Exception as exc:
+            logger.warning("Bot status check failed: %s", exc)
+            return {"connected": False, "reason": "Error de conexión"}
+
+    def _get_api_status(self):
+        """Check LM Studio API availability"""
+        api_url = getattr(self.config, "lm_studio_api_url", "")
+        if not api_url:
+            return {"active": False, "reason": "URL no configurada"}
+        parsed = urlparse(api_url)
+        if not parsed.scheme or not parsed.netloc:
+            return {"active": False, "reason": "URL inválida"}
+        ping_url = f"{parsed.scheme}://{parsed.netloc}"
+        try:
+            response = requests.get(ping_url, timeout=5)
+            return {
+                "active": response.status_code < 500,
+                "latency_ms": int(response.elapsed.total_seconds() * 1000)
+            }
+        except requests.RequestException as exc:
+            logger.debug("API status check failed: %s", exc)
+            return {"active": False, "reason": "Sin respuesta"}
+
+    def _apply_footer_status(self, status):
+        """Update footer labels with live data"""
+        connection = status.get("connection", {})
+        if connection.get("online"):
+            latency = connection.get("latency_ms")
+            latency_text = f" ({latency} ms)" if latency is not None else ""
+            self.status_label.setText(f"🟢 Conectado a Telegram{latency_text}")
+        else:
+            self.status_label.setText("🔴 Sin conexión")
+
+        bot = status.get("bot", {})
+        if bot.get("connected"):
+            username = bot.get("username")
+            name = bot.get("name")
+            if username:
+                handle = username if username.startswith("@") else f"@{username}"
+            elif name:
+                handle = name
+            else:
+                handle = "Conectado"
+            self.bot_info.setText(f"🤖 Bot: {handle}")
+        else:
+            reason = bot.get("reason", "No conectado")
+            self.bot_info.setText(f"🤖 Bot: {reason}")
+
+        api = status.get("api", {})
+        if api.get("active"):
+            latency = api.get("latency_ms")
+            latency_text = f" ({latency} ms)" if latency is not None else ""
+            self.api_status.setText(f"🌐 API: Activa{latency_text}")
+        else:
+            reason = api.get("reason", "Inactiva")
+            self.api_status.setText(f"🌐 API: {reason}")
+
+        self._footer_update_in_progress = False
 
     def _add_ai_tab(self):
         """Add AI Generation tab with blue theme"""

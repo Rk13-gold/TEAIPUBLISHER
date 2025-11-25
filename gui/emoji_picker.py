@@ -131,7 +131,7 @@ class EmojiPicker(QDialog):
             scroll.setWidgetResizable(True)
             widget = QWidget()
             grid = QGridLayout(widget)
-            grid.setSpacing(2)
+            grid.setSpacing(6)
             grid.setContentsMargins(8, 8, 8, 8)
             scroll.setWidget(widget)
             self.emoji_grids[cat] = grid
@@ -149,14 +149,14 @@ class EmojiPicker(QDialog):
             if widget:
                 widget.setParent(None)
         # Agregar emojis
-        columns = 14 if category != "Banderas" else 8
+        columns = 12 if category != "Banderas" else 8
         for idx, emoji in enumerate(emojis):
             btn = QPushButton(emoji)
-            btn.setFixedSize(32, 32)
-            btn.setFont(QFont("Segoe UI Emoji", 18))
+            btn.setFixedSize(44, 44)
+            btn.setFont(QFont("Segoe UI Emoji", 28))
+            btn.setStyleSheet("font-size: 26px; color: none; background: none; border: none;")
             btn.setCursor(Qt.PointingHandCursor)
             btn.setProperty("class", "emoji-btn")  # Para que el QSS global no afecte el color
-            btn.setStyleSheet("color: none; background: none; border: none;")  # Refuerzo para evitar herencia
             btn.clicked.connect(lambda _, e=emoji: self.select_emoji(e))
             grid.addWidget(btn, idx // columns, idx % columns)
 

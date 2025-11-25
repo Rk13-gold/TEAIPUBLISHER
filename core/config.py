@@ -39,6 +39,14 @@ class Config:
         self.lm_studio_api_url = 'http://192.168.18.5:1234/v1/chat/completions'
         self.lm_studio_model = 'phi-3-mini-4k-instruct'  # Modelo por defecto, ajusta si usas otro
         self.lm_studio_api_key = ''  # Si tu LM Studio requiere API Key, colócala aquí, si no, déjalo vacío
+
+        # Groq API configuration
+        self.groq_api_key = ''
+        self.groq_model = 'llama-3.1-8b-instant'
+        self.groq_temperature = 0.8
+        self.groq_max_tokens = 900
+        self.groq_top_p = 0.9
+        self.groq_prompt_template = 'ai_integration/prompt_presets/viral_post_template.json'
         
         # Application settings
         self.max_post_length = 4096  # Maximum length for Telegram posts
@@ -93,6 +101,12 @@ class Config:
                 'lm_studio_api_url': self.lm_studio_api_url,
                 'lm_studio_model': self.lm_studio_model,
                 'lm_studio_api_key': self.lm_studio_api_key,
+                'groq_api_key': self.groq_api_key,
+                'groq_model': self.groq_model,
+                'groq_temperature': self.groq_temperature,
+                'groq_max_tokens': self.groq_max_tokens,
+                'groq_top_p': self.groq_top_p,
+                'groq_prompt_template': self.groq_prompt_template,
                 'max_post_length': self.max_post_length,
                 'theme': self.theme,
                 'language': self.language,
@@ -162,12 +176,12 @@ class Config:
     def get_ai_config(self):
         """Get AI configuration as dictionary"""
         return {
-            'api_url': self.lm_studio_api_url,
-            'model': self.lm_studio_model,
-            'api_key': self.lm_studio_api_key,
-            'temperature': self.ai_temperature,
-            'max_tokens': self.ai_max_tokens,
-            'fallback_model': self.ai_model_fallback
+            'groq_api_key': self.groq_api_key,
+            'groq_model': self.groq_model,
+            'groq_temperature': self.groq_temperature,
+            'groq_max_tokens': self.groq_max_tokens,
+            'groq_top_p': self.groq_top_p,
+            'groq_prompt_template': self.groq_prompt_template
         }
 
     def get_publishing_config(self):

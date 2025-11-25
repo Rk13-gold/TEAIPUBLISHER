@@ -630,7 +630,7 @@ class PublishTab(QWidget):
 
         # Emoji button for title
         self.title_emoji_btn = QPushButton("😊")
-        self.title_emoji_btn.setFixedSize(28, 28)
+        self.title_emoji_btn.setFixedSize(36, 36)
         self.title_emoji_btn.setProperty("class", "emoji-btn")
         self.title_emoji_btn.setToolTip("Insertar emoji en el título")
         self.title_emoji_btn.clicked.connect(self.insert_emoji_title)
@@ -665,7 +665,7 @@ class PublishTab(QWidget):
         
         # Emoji button
         self.emoji_btn = QPushButton("😊")
-        self.emoji_btn.setFixedSize(28, 28)
+        self.emoji_btn.setFixedSize(36, 36)
         self.emoji_btn.setToolTip("Insertar emoji")
         self.emoji_btn.clicked.connect(self.insert_emoji_content)
         buttons_layout.addWidget(self.emoji_btn)
@@ -750,8 +750,8 @@ class PublishTab(QWidget):
         
         # Emoji button for voice title
         self.voice_emoji_btn = QPushButton("😊")
-        self.voice_emoji_btn.setFixedWidth(24)
-        self.voice_emoji_btn.setFont(QFont("Segoe UI Emoji", 16))
+        self.voice_emoji_btn.setFixedSize(32, 32)
+        self.voice_emoji_btn.setFont(QFont("Segoe UI Emoji", 20))
         self.voice_emoji_btn.setStyleSheet("color: none; background: none; border: none;")
         self.voice_emoji_btn.setToolTip("Agregar emoji al título del audio")
         self.voice_emoji_btn.clicked.connect(self.insert_emoji_voice_title)
@@ -787,7 +787,7 @@ class PublishTab(QWidget):
         cta_layout.addWidget(self.cta_edit)
         
         self.cta_emoji_btn = QPushButton("😊")
-        self.cta_emoji_btn.setFixedWidth(24)
+        self.cta_emoji_btn.setFixedSize(32, 32)
         self.cta_emoji_btn.clicked.connect(self.insert_emoji_cta)
         cta_layout.addWidget(self.cta_emoji_btn)
         engagement_layout.addLayout(cta_layout)

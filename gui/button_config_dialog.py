@@ -33,8 +33,8 @@ class ButtonConfigDialog(QDialog):
 
         # Botón de emoji para insertar en el texto de los botones
         self.emoji_btn = QPushButton("🛸")
-        self.emoji_btn.setFont(QFont("Segoe UI Emoji", 18))
-        self.emoji_btn.setFixedWidth(36)
+        self.emoji_btn.setFont(QFont("Segoe UI Emoji", 24))
+        self.emoji_btn.setFixedSize(38, 38)
         self.emoji_btn.setProperty("class", "emoji-btn")
         self.emoji_btn.setStyleSheet("color: none; background: none; border: none;")
         self.emoji_btn.setToolTip("Insertar emoji en el campo de texto activo")

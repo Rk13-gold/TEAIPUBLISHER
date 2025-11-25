@@ -6,28 +6,31 @@ from PySide6.QtWidgets import (
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIntValidator, QFont
+from pathlib import Path
+from html import escape
+from html.parser import HTMLParser
 import requests
 import json
 import re
 
-from ai_integration.lm_studio_client import LMStudioClient
+from ai_integration.groq_client import GroqClient
 from gui.post_preview import PostPreviewWidget
 from gui.emoji_picker import EmojiPicker
 from gui.button_config_dialog import ButtonConfigDialog
 
 # --- Worker para la IA ---
-class LMStudioWorker(QThread):
+class GroqWorker(QThread):
     finished = Signal(dict)
     error = Signal(str)
 
-    def __init__(self, client, prompt):
+    def __init__(self, client, messages):
         super().__init__()
         self.client = client
-        self.prompt = prompt
+        self.messages = messages
 
     def run(self):
         try:
-            result = self.client.chat(self.prompt)
+            result = self.client.chat(self.messages)
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -79,6 +82,7 @@ class AITab(QWidget):
         self.last_ai_response = ""
         self.telegram_image_path = None
         self.telegram_buttons = [[]]
+        self.prompt_template = self._load_prompt_template()
 
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(12, 12, 12, 12)
@@ -91,8 +95,24 @@ class AITab(QWidget):
 
         self.chat_history = QTextEdit()
         self.chat_history.setReadOnly(True)
-        self.chat_history.setPlaceholderText("🔥Hola sebas...✌️comencemos a crear post psicologicos y virales🧩")
+        self.chat_history.setPlaceholderText("🔥 Describe un post viral que necesitas, completa el brief y genera")
         chat_layout.addWidget(self.chat_history)
+
+        # Brief rápido para tema + instrucciones
+        brief_group = QGroupBox("Brief creativo")
+        brief_form = QFormLayout()
+
+        self.topic_input = QLineEdit()
+        self.topic_input.setPlaceholderText("Tema principal del post (ej. 'Growth en Telegram')")
+        brief_form.addRow("Tema:", self.topic_input)
+
+        self.brief_instructions = QTextEdit()
+        self.brief_instructions.setPlaceholderText("Indicaciones específicas: tono, formato, CTA, etc.")
+        self.brief_instructions.setFixedHeight(80)
+        brief_form.addRow("Instrucciones:", self.brief_instructions)
+
+        brief_group.setLayout(brief_form)
+        chat_layout.addWidget(brief_group)
 
         input_layout = QHBoxLayout()
         self.input_line = QLineEdit()
@@ -134,8 +154,8 @@ class AITab(QWidget):
 
         # Botón de emoji para título (corregido)
         self.title_emoji_btn = QPushButton("🛸")
-        self.title_emoji_btn.setFixedWidth(24)
-        self.title_emoji_btn.setFont(QFont("Segoe UI Emoji", 18))
+        self.title_emoji_btn.setFixedSize(34, 34)
+        self.title_emoji_btn.setFont(QFont("Segoe UI Emoji", 22))
         self.title_emoji_btn.setProperty("class", "emoji-btn")
         self.title_emoji_btn.setStyleSheet("color: none; background: none; border: none;")
         self.title_emoji_btn.clicked.connect(self.insert_emoji_title)
@@ -170,8 +190,8 @@ class AITab(QWidget):
 
         # Botón de emoji para el área de edición (corregido)
         self.emoji_btn = QPushButton("🛸")
-        self.emoji_btn.setFixedWidth(24)
-        self.emoji_btn.setFont(QFont("Segoe UI Emoji", 18))
+        self.emoji_btn.setFixedSize(34, 34)
+        self.emoji_btn.setFont(QFont("Segoe UI Emoji", 22))
         self.emoji_btn.setProperty("class", "emoji-btn")
         self.emoji_btn.setStyleSheet("color: none; background: none; border: none;")
         self.emoji_btn.clicked.connect(self.insert_emoji)
@@ -206,10 +226,9 @@ class AITab(QWidget):
 
         main_layout.addLayout(right_side, 2)
 
-        self.lm_client = LMStudioClient(
-            api_url=self.config.lm_studio_api_url,
-            api_key=getattr(self.config, "lm_studio_api_key", ""),
-            model=getattr(self.config, "lm_studio_model", "qwen/qwen3-4b")
+        self.groq_client = GroqClient(
+            api_key=getattr(self.config, "groq_api_key", ""),
+            model=getattr(self.config, "groq_model", "mixtral-8x7b-32768")
         )
 
         # Imagen: seleccionar desde el botón de imagen o desde el preview
@@ -240,7 +259,8 @@ class AITab(QWidget):
         title = self.title_edit.text().strip()
         text = self.edit_area.toPlainText()
         preview_text = self.format_telegram_post(f"{title}\n\n{text}" if title else text)
-        self.post_preview.set_html(preview_text)
+        preview_html = preview_text.replace("\n", "<br>")
+        self.post_preview.set_html(preview_html)
         self.post_preview.set_image(self.telegram_image_path)
         keyboard = []
         if self.telegram_buttons and any(self.telegram_buttons):
@@ -299,7 +319,7 @@ class AITab(QWidget):
                 continue
             # Por defecto, texto normal
             formatted.append(stripped)
-        return "<br>".join(formatted)
+        return "\n".join(formatted)
 
     # --- Métodos de configuración ---
     def open_ai_config(self):
@@ -323,29 +343,46 @@ class AITab(QWidget):
                 cursor.insertText(emoji)
 
     # --- Métodos de IA ---
-    def build_prompt(self, user_message):
-        prompt = self.base_prompt.strip() if self.base_prompt else ""
-        if self.copy_options:
-            prompt += "\nElige uno de estos copys como base:\n" + "\n".join(f"- {c}" for c in self.copy_options)
-        if self.emoji_count > 0:
-            prompt += f"\nIncluye aproximadamente {self.emoji_count} emojis relevantes."
-        prompt += f"\n{user_message}"
-        return prompt
+    def build_prompt_messages(self, topic, instructions, user_message):
+        template = self.prompt_template or {}
+        system_message = self._compose_system_message(template)
+        payload = self._compose_user_payload(template, topic, instructions, user_message)
+        content = json.dumps(payload, ensure_ascii=False, indent=2)
+        return [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": content}
+        ]
 
     def send_message(self):
-        user_message = self.input_line.text().strip()
-        if not user_message:
-            QMessageBox.warning(self, "Error", "Por favor, escribe un mensaje para la IA.")
+        if not getattr(self.config, "groq_api_key", ""):
+            QMessageBox.warning(self, "Groq", "Configura tu API Key de Groq en config.json para generar contenido.")
             return
 
-        prompt = self.build_prompt(user_message)
-        self.chat_history.append(f"<b style='color:#0078d7'>Tú:</b> {user_message}")
+        user_message = self.input_line.text().strip()
+        topic = self.topic_input.text().strip()
+        instructions = self.brief_instructions.toPlainText().strip()
+
+        if not topic:
+            QMessageBox.warning(self, "Brief incompleto", "Ingresa al menos un tema principal para el post.")
+            return
+
+        if not user_message and not instructions:
+            QMessageBox.warning(self, "Brief incompleto", "Agrega instrucciones o un mensaje para la IA.")
+            return
+
+        messages = self.build_prompt_messages(topic, instructions, user_message)
+        resumen = f"<b>Tema:</b> {topic}"
+        if instructions:
+            resumen += f"<br><i>Brief:</i> {instructions}"
+        if user_message:
+            resumen += f"<br><i>Mensaje:</i> {user_message}"
+        self.chat_history.append(f"<b style='color:#0078d7'>Brief enviado:</b><br>{resumen}")
         self.input_line.clear()
         self.send_button.setEnabled(False)
         self.input_line.setEnabled(False)
         self.progress_bar.setVisible(True)
 
-        self.worker = LMStudioWorker(self.lm_client, prompt)
+        self.worker = GroqWorker(self.groq_client, messages)
         self.worker.finished.connect(self.on_ai_response)
         self.worker.error.connect(self.on_ai_error)
         self.worker.start()
@@ -359,7 +396,8 @@ class AITab(QWidget):
             self.chat_history.append(f"<b style='color:#e53935'>IA (error):</b> {response['error']}")
             self.last_ai_response = ""
         else:
-            text = response.get("text", "")
+            raw_text = response.get("text", "")
+            text = self._normalize_markdown_bold(raw_text)
             self.last_ai_response = text
             self.chat_history.append(f"<b style='color:#009688'>IA:</b> {text}")
 
@@ -383,6 +421,7 @@ class AITab(QWidget):
         title = self.title_edit.text().strip()
         if title:
             content = f"<b>{title}</b>\n\n{content}"
+        content = self._prepare_content_for_telegram(content)
         if not content:
             QMessageBox.warning(self, "Error", "El contenido a publicar no puede estar vacío.")
             return
@@ -475,3 +514,112 @@ class AITab(QWidget):
                 QMessageBox.critical(self, "Error", error_msg)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al enviar el post: {e}")
+
+    # --- Prompt helpers ---
+    def _prepare_content_for_telegram(self, content: str) -> str:
+        """Normaliza saltos de línea y permite solo etiquetas HTML válidas para Telegram."""
+        normalized = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", content)
+        normalized = re.sub(r"<br\s*/?>", "\n", normalized, flags=re.IGNORECASE)
+        sanitizer = _TelegramHTMLSanitizer()
+        sanitizer.feed(normalized)
+        sanitizer.close()
+        return sanitizer.get_data().strip()
+
+    def _normalize_markdown_bold(self, text: str) -> str:
+        return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+
+    def _load_prompt_template(self):
+        template_path = getattr(self.config, "groq_prompt_template", "")
+        if not template_path:
+            return {}
+        path = Path(template_path)
+        if not path.is_absolute():
+            base_dir = getattr(self.config, "base_dir", Path(__file__).resolve().parents[1])
+            path = Path(base_dir) / template_path
+        try:
+            with open(path, "r", encoding="utf-8") as fp:
+                return json.load(fp)
+        except Exception as exc:
+            print(f"⚠️ No se pudo cargar el template de prompt ({path}): {exc}")
+            return {}
+
+    def _compose_system_message(self, template):
+        parts = [template.get("system_instruction", self.base_prompt)]
+        persona = template.get("persona", {})
+        if persona:
+            parts.append(
+                f"Actúa como {persona.get('nombre', 'un estratega')} con habilidades en "
+                f"{', '.join(persona.get('habilidades', []))}. Objetivo: {persona.get('objetivo', '')}."
+            )
+        defaults = template.get("defaults", {})
+        if defaults:
+            parts.append(
+                f"Tono: {defaults.get('tono', 'profesional')}. Audiencia: {defaults.get('audiencia', 'usuarios de Telegram')}"
+            )
+        if self.copy_options:
+            parts.append("Copys sugeridos: " + " | ".join(self.copy_options))
+        if self.emoji_count:
+            parts.append(f"Incluye aproximadamente {self.emoji_count} emojis.")
+        if self.base_prompt:
+            parts.append(self.base_prompt)
+        return "\n".join([p for p in parts if p])
+
+    def _compose_user_payload(self, template, topic, instructions, user_message):
+        framework = template.get("virality_framework", {})
+        output = template.get("output_format", {})
+        defaults = template.get("defaults", {})
+        return {
+            "tema": topic,
+            "instrucciones": instructions or user_message,
+            "mensaje_chat": user_message,
+            "contexto": {
+                "framework": framework,
+                "output_format": output,
+                "defaults": defaults,
+            }
+        }
+
+
+class _TelegramHTMLSanitizer(HTMLParser):
+    allowed_tags = {
+        "b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code", "pre", "a"
+    }
+    allowed_attrs = {"a": {"href"}}
+
+    def __init__(self):
+        super().__init__()
+        self._chunks: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag not in self.allowed_tags:
+            return
+        attr_text = ""
+        if attrs and tag in self.allowed_attrs:
+            filtered = []
+            for name, value in attrs:
+                if name in self.allowed_attrs[tag] and value:
+                    if tag == "a" and not value.lower().startswith(("http://", "https://")):
+                        continue
+                    filtered.append((name, escape(value, quote=True)))
+            if filtered:
+                attr_text = " " + " ".join(f'{k}="{v}"' for k, v in filtered)
+        self._chunks.append(f"<{tag}{attr_text}>")
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag in self.allowed_tags:
+            self._chunks.append(f"</{tag}>")
+
+    def handle_data(self, data):
+        if data:
+            self._chunks.append(escape(data, quote=False))
+
+    def handle_entityref(self, name):
+        self._chunks.append(f"&{name};")
+
+    def handle_charref(self, name):
+        self._chunks.append(f"&#{name};")
+
+    def get_data(self) -> str:
+        return "".join(self._chunks)
