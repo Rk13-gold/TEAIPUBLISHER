@@ -14,9 +14,11 @@ import json
 import re
 
 from ai_integration.groq_client import GroqClient
+from services.telegram_bot_client import TelegramBotClient
 from gui.post_preview import PostPreviewWidget
 from gui.emoji_picker import EmojiPicker
 from gui.button_config_dialog import ButtonConfigDialog
+from gui.web_search_dialog import WebSearchDialog
 
 # --- Worker para la IA ---
 class GroqWorker(QThread):
@@ -81,8 +83,12 @@ class AITab(QWidget):
         self.copy_options = []
         self.last_ai_response = ""
         self.telegram_image_path = None
+        # Unified media selections (image/video)
+        self.telegram_media_path = None
+        self.telegram_media_type = None  # 'photo', 'video', 'animation'
         self.telegram_buttons = [[]]
         self.prompt_template = self._load_prompt_template()
+        self.web_snippets = []
 
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(12, 12, 12, 12)
@@ -120,8 +126,11 @@ class AITab(QWidget):
         self.input_line.returnPressed.connect(self.send_message)
         self.send_button = QPushButton("🌐 GENERAR")
         self.send_button.clicked.connect(self.send_message)
+        self.search_and_generate_btn = QPushButton("🔁 Buscar y Generar")
+        self.search_and_generate_btn.clicked.connect(self.search_and_generate)
         input_layout.addWidget(self.input_line)
         input_layout.addWidget(self.send_button)
+        input_layout.addWidget(self.search_and_generate_btn)
         chat_layout.addLayout(input_layout)
 
         # --- Botón de configuración IA debajo de "Generar" ---
@@ -129,6 +138,11 @@ class AITab(QWidget):
         self.config_button.setText("⚙️ Configuración IA")
         self.config_button.clicked.connect(self.open_ai_config)
         chat_layout.addWidget(self.config_button, 0, Qt.AlignLeft)
+
+        # Web search button for real-time context
+        self.web_search_btn = QPushButton("🔎 Buscar web")
+        self.web_search_btn.clicked.connect(self.open_web_search)
+        chat_layout.addWidget(self.web_search_btn, 0, Qt.AlignLeft)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
@@ -166,6 +180,18 @@ class AITab(QWidget):
         self.image_btn.setToolTip("Seleccionar imagen para previsualización")
         self.image_btn.clicked.connect(self.select_image_for_preview)
         title_img_layout.addWidget(self.image_btn, 0)
+        
+        # Video button to add video media to posts
+        self.video_btn = QPushButton("🎥 Video")
+        self.video_btn.setToolTip("Seleccionar video para previsualización")
+        self.video_btn.clicked.connect(self.select_video_for_preview)
+        title_img_layout.addWidget(self.video_btn, 0)
+
+        # Voice note button
+        self.voice_btn = QPushButton("🎤 Audio")
+        self.voice_btn.setToolTip("Seleccionar nota de voz para adjuntar")
+        self.voice_btn.clicked.connect(self.select_voice_file)
+        title_img_layout.addWidget(self.voice_btn, 0)
 
         right_side.addLayout(title_img_layout)
 
@@ -203,9 +229,12 @@ class AITab(QWidget):
         import_layout = QHBoxLayout()
         self.import_button = QPushButton("I-CONT IA")
         self.import_button.clicked.connect(self.import_response)
+        self.open_publish_button = QPushButton("Abrir en Publish")
+        self.open_publish_button.clicked.connect(self.open_in_publish)
         self.publish_button = QPushButton("Enviar")
         self.publish_button.clicked.connect(self.publish_post)
         import_layout.addWidget(self.import_button)
+        import_layout.addWidget(self.open_publish_button)
         import_layout.addWidget(self.publish_button)
         edit_layout.addLayout(import_layout)
 
@@ -251,7 +280,31 @@ class AITab(QWidget):
     def select_image_for_preview(self):
         file, _ = QFileDialog.getOpenFileName(self, "Seleccionar imagen", "", "Imágenes (*.png *.jpg *.jpeg *.webp *.bmp)")
         if file:
+            # Set unified media state and the image preview helper
+            self.telegram_media_path = file
+            self.telegram_media_type = 'photo'
             self.telegram_image_path = file
+            self.update_preview()
+
+    def select_video_for_preview(self):
+        file, _ = QFileDialog.getOpenFileName(self, "Seleccionar video", "", "Videos (*.mp4 *.mov *.webm *.avi *.gif)")
+        if file:
+            self.telegram_media_path = file
+            if file.lower().endswith(('.gif', '.webp')):
+                self.telegram_media_type = 'animation'
+            else:
+                self.telegram_media_type = 'video'
+            # Clear image preview and update preview to indicate a video is attached
+            self.telegram_image_path = None
+            self.update_preview()
+
+    def select_voice_file(self):
+        file, _ = QFileDialog.getOpenFileName(self, "Seleccionar audio", "", "Audio (*.mp3 *.wav *.ogg)")
+        if file:
+            self.voice_selected_file = file
+            # no title/description fields in AI tab; set empty
+            self.voice_title = ""
+            self.voice_description = ""
             self.update_preview()
 
     # --- Actualizar previsualización ---
@@ -260,6 +313,16 @@ class AITab(QWidget):
         text = self.edit_area.toPlainText()
         preview_text = self.format_telegram_post(f"{title}\n\n{text}" if title else text)
         preview_html = preview_text.replace("\n", "<br>")
+        # If there's a video attached, annotate the preview with a video marker
+        if self.telegram_media_type == 'video' and self.telegram_media_path:
+            preview_text = f"🎞️ Video adjunto: {Path(self.telegram_media_path).name}\n\n" + preview_text
+            preview_html = preview_text.replace("\n", "<br>")
+
+        # If voice file exists, annotate preview too
+        if getattr(self, 'voice_selected_file', None):
+            preview_text = f"🎵 Audio adjunto: {Path(self.voice_selected_file).name}\n\n" + preview_text
+            preview_html = preview_text.replace("\n", "<br>")
+
         self.post_preview.set_html(preview_html)
         self.post_preview.set_image(self.telegram_image_path)
         keyboard = []
@@ -333,6 +396,60 @@ class AITab(QWidget):
             self.telegram_buttons = dlg.get_values()
             self.update_preview()
 
+    def open_in_publish(self):
+        """Send the current post draft to Publish tab, pre-filling the fields there."""
+        # Prepare post_data similar to publish_post
+        content = self.edit_area.toPlainText().strip()
+        title = self.title_edit.text().strip()
+        if title:
+            content = f"<b>{title}</b>\n\n{content}"
+        content = self._prepare_content_for_telegram(content)
+
+        keyboard = []
+        if self.telegram_buttons and any(self.telegram_buttons):
+            for row in self.telegram_buttons:
+                row_buttons = []
+                for btn in row:
+                    if isinstance(btn, dict) and "text" in btn and "url" in btn:
+                        row_buttons.append({"text": btn["text"], "url": btn["url"]})
+                if row_buttons:
+                    keyboard.append(row_buttons)
+        reply_markup = json.dumps({"inline_keyboard": keyboard}) if keyboard else None
+
+        post_data = {
+            'main_content': content,
+            'presentation_path': getattr(self, 'telegram_media_path', None),
+            'presentation_type': getattr(self, 'telegram_media_type', None),
+            'reply_markup': reply_markup,
+            'cta_hashtags': None
+        }
+        if getattr(self, 'voice_selected_file', None):
+            post_data.update({
+                'voice_file': self.voice_selected_file,
+                'voice_title': getattr(self, 'voice_title', ''),
+                'voice_description': getattr(self, 'voice_description', '')
+            })
+        # Add voice if present
+        if getattr(self, 'voice_selected_file', None):
+            post_data.update({
+                'voice_file': self.voice_selected_file,
+                'voice_title': getattr(self, 'voice_title', ''),
+                'voice_description': getattr(self, 'voice_description', '')
+            })
+
+        # Attempt to find the top-level MainWindow and the Publish tab
+        try:
+            from PySide6.QtWidgets import QApplication
+            win = self.window()
+            if hasattr(win, 'publish_tab'):
+                win.publish_tab.load_post_data(post_data)
+                # Switch to the Publish tab
+                win.tabs.setCurrentWidget(win.publish_tab)
+            else:
+                QMessageBox.warning(self, "No disponible", "Pestaña Publish no está disponible actualmente.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo abrir en Publish: {e}")
+
     # --- Emoji picker para edición ---
     def insert_emoji(self):
         picker = EmojiPicker(self)
@@ -387,6 +504,35 @@ class AITab(QWidget):
         self.worker.error.connect(self.on_ai_error)
         self.worker.start()
 
+    def search_and_generate(self):
+        # Construct a query from topic + brief and run web search, then generate content
+        if not getattr(self.config, 'groq_api_key', ''):
+            QMessageBox.warning(self, 'Groq', 'Configura tu API Key de Groq en config.json para generar contenido.')
+            return
+        topic = self.topic_input.text().strip()
+        instructions = self.brief_instructions.toPlainText().strip()
+        if not topic and not instructions:
+            QMessageBox.warning(self, 'Brief incompleto', 'Ingresa un tema o instrucciones para generar la consulta de búsqueda.')
+            return
+        query = f"{topic} {instructions}".strip()
+        # Use web search helper to add web snippets to self.web_snippets
+        from ai_integration.web_search import search as web_search, can_search
+        if not can_search():
+            QMessageBox.critical(self, 'Dependencia faltante', 'Instala ddgs o duckduckgo-search para usar búsquedas web.')
+            return
+        self.web_snippets = web_search(query, max_results=5)
+        # Proceed to generate with web_snippets included
+        user_message = self.input_line.text().strip()
+        messages = self.build_prompt_messages(topic, instructions, user_message)
+        self.chat_history.append(f"<b style='color:#0078d7'>Consulta web incluida: {query}</b>")
+        self.send_button.setEnabled(False)
+        self.input_line.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.worker = GroqWorker(self.groq_client, messages)
+        self.worker.finished.connect(self.on_ai_response)
+        self.worker.error.connect(self.on_ai_error)
+        self.worker.start()
+
     def on_ai_response(self, response):
         self.progress_bar.setVisible(False)
         self.send_button.setEnabled(True)
@@ -415,6 +561,25 @@ class AITab(QWidget):
         formatted = self.format_telegram_post(self.last_ai_response)
         self.edit_area.setPlainText(formatted)
 
+    def open_web_search(self):
+        dlg = WebSearchDialog(self)
+        if dlg.exec():
+            # The dialog returns selected_text and selected_target
+            selected = getattr(dlg, 'selected_text', '').strip()
+            target = getattr(dlg, 'selected_target', 'instructions')
+            if not selected:
+                return
+            if target == 'instructions':
+                cur = self.brief_instructions.toPlainText().strip()
+                new = (cur + "\n\n" + selected) if cur else selected
+                self.brief_instructions.setPlainText(new)
+            else:
+                cur = self.edit_area.toPlainText().strip()
+                new = (cur + "\n\n" + selected) if cur else selected
+                self.edit_area.setPlainText(new)
+            # Save web snippet in AI tab context so it's included in payload
+            self.web_snippets.append({'text': selected})
+
     # --- Publicar en Telegram ---
     def publish_post(self):
         content = self.edit_area.toPlainText().strip()
@@ -426,8 +591,29 @@ class AITab(QWidget):
             QMessageBox.warning(self, "Error", "El contenido a publicar no puede estar vacío.")
             return
 
-        token = self.config.telegram_token
+        # Prefer explicit bot_token (used for channel posting) and fallback to telegram_token
+        token = getattr(self.config, "bot_token", None) or getattr(self.config, "telegram_token", None)
         chat_id = self.config.telegram_chat_id
+
+        # Validate chat and bot access before attempting to send
+        if not token:
+            QMessageBox.critical(self, "Error", "Token de bot no configurado. Configura un bot token válido en la configuración.")
+            return
+        try:
+            bot_client = TelegramBotClient(token)
+            chat_info = bot_client.get_chat_info(chat_id)
+            if not chat_info:
+                QMessageBox.critical(self, "Error", f"Chat no encontrado: {chat_id}.\nAsegúrate de que el ID sea correcto o usa @username del canal, y de que el bot esté en el canal como administrador.")
+                return
+            # Check basic permission to post
+            perms = bot_client.validate_bot_permissions(chat_id) or {}
+            status = perms.get('status', None)
+            if status not in ['administrator', 'creator']:
+                # It could still be allowed if bot is a member with posting rights, but usually channels require admin
+                QMessageBox.warning(self, "Permisos limitados", "El bot no parece ser administrador del chat. Asegúrate de añadirlo como administrador con permiso para publicar mensajes.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo validar el chat: {e}")
+            return
 
         # Adjuntar botones si existen (corregido para lista de filas)
         keyboard = []
@@ -440,6 +626,32 @@ class AITab(QWidget):
                 if row_buttons:
                     keyboard.append(row_buttons)
         reply_markup = json.dumps({"inline_keyboard": keyboard}) if keyboard else None
+
+        # Build unified post_data and use PublishWorker (from PublishTab) to perform publishing as in PublishTab
+        post_data = {
+            'main_content': content,
+            'presentation_path': getattr(self, 'telegram_media_path', None),
+            'presentation_type': getattr(self, 'telegram_media_type', None),
+            'reply_markup': reply_markup,
+            'cta_hashtags': None
+        }
+
+        # Try using the PublishWorker so AI tab leverages the same flow
+        try:
+            from gui.publish_tab import PublishWorker
+            self.publish_worker = PublishWorker(post_data, self.config)
+            self.publish_worker.progress.connect(lambda m: self.chat_history.append(f"[Publish] {m}"))
+            def on_finished(success, msg):
+                if success:
+                    QMessageBox.information(self, "Éxito", msg)
+                else:
+                    QMessageBox.critical(self, "Error", msg)
+            self.publish_worker.finished.connect(on_finished)
+            self.publish_worker.start()
+            return
+        except Exception as e:
+            # If we couldn't use PublishWorker (e.g., import error), fallback to existing API request path
+            print("⚠️ No se pudo iniciar PublishWorker desde AI tab:", e)
 
         # Si hay imagen y el texto es <= 1024, usa sendPhoto, si no, primero manda la foto y luego el texto
         if self.telegram_image_path:
@@ -460,7 +672,10 @@ class AITab(QWidget):
                         QMessageBox.information(self, "Éxito", "¡Post con imagen enviado a Telegram!")
                     else:
                         error_msg = result.get("description", "Error al publicar en Telegram.")
-                        QMessageBox.critical(self, "Error", error_msg)
+                        if "chat not found" in (error_msg or "").lower():
+                            QMessageBox.critical(self, "Error", f"{error_msg}\n\nAsegúrate de que el bot fue añadido al canal como administrador y que el ID/username configurado es correcto.")
+                        else:
+                            QMessageBox.critical(self, "Error", error_msg)
                     return
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"Error al enviar imagen: {e}")
@@ -489,7 +704,10 @@ class AITab(QWidget):
                         QMessageBox.information(self, "Éxito", "¡Imagen y texto enviados a Telegram!")
                     else:
                         error_msg = result.get("description", "Error al publicar en Telegram.")
-                        QMessageBox.critical(self, "Error", error_msg)
+                        if "chat not found" in (error_msg or "").lower():
+                            QMessageBox.critical(self, "Error", f"{error_msg}\n\nAsegúrate de que el bot fue añadido al canal como administrador y que el ID/username configurado es correcto.")
+                        else:
+                            QMessageBox.critical(self, "Error", error_msg)
                     return
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"Error al enviar imagen y texto: {e}")
@@ -511,7 +729,10 @@ class AITab(QWidget):
                 QMessageBox.information(self, "Éxito", "¡Post enviado a Telegram!")
             else:
                 error_msg = result.get("description", "Error al publicar en Telegram.")
-                QMessageBox.critical(self, "Error", error_msg)
+                if "chat not found" in (error_msg or "").lower():
+                    QMessageBox.critical(self, "Error", f"{error_msg}\n\nAsegúrate de que el bot fue añadido al canal como administrador y que el ID/username configurado es correcto.")
+                else:
+                    QMessageBox.critical(self, "Error", error_msg)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al enviar el post: {e}")
 
@@ -568,10 +789,12 @@ class AITab(QWidget):
         framework = template.get("virality_framework", {})
         output = template.get("output_format", {})
         defaults = template.get("defaults", {})
+        web_snippets = getattr(self, 'web_snippets', [])
         return {
             "tema": topic,
             "instrucciones": instructions or user_message,
             "mensaje_chat": user_message,
+            "web_snippets": web_snippets,
             "contexto": {
                 "framework": framework,
                 "output_format": output,

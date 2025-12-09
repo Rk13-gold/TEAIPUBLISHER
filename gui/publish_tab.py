@@ -15,6 +15,8 @@ import re
 import random
 import shutil
 from datetime import datetime
+from pathlib import Path
+from services.telegram_bot_client import TelegramBotClient
 
 # Professional imports for production-ready functionality
 try:
@@ -66,8 +68,29 @@ class PublishWorker(QThread):
     def run(self):
         """Execute professional publishing sequence"""
         try:
-            token = self.config.telegram_token
+            token = getattr(self.config, "bot_token", None) or getattr(self.config, "telegram_token", None)
             chat_id = self.config.telegram_chat_id
+
+            # Validate token and chat before starting publish sequence
+            if not token:
+                self.progress.emit("❌ Token de bot no configurado en la configuración")
+                self.finished.emit(False, "Token de bot no configurado")
+                return
+            try:
+                bot_client = TelegramBotClient(token)
+                chat_info = bot_client.get_chat_info(chat_id)
+                if not chat_info:
+                    self.progress.emit(f"❌ Chat no encontrado: {chat_id}")
+                    self.finished.emit(False, "Chat no encontrado. Verifica ID o @username y que el bot esté añadido al canal como administrador")
+                    return
+                perms = bot_client.validate_bot_permissions(chat_id) or {}
+                status = perms.get('status', None)
+                if status not in ['administrator', 'creator']:
+                    self.progress.emit("⚠️ El bot no es administrador en el chat. Es posible que no pueda publicar mensajes")
+            except Exception as e:
+                self.progress.emit(f"❌ Error validando token/chat: {e}")
+                self.finished.emit(False, f"Error validando token/chat: {e}")
+                return
             
             self.progress.emit("🚀 Iniciando secuencia de publicación...")
             
@@ -1135,6 +1158,77 @@ class PublishTab(QWidget):
             **voice_data
         }
 
+    def load_post_data(self, post_data: dict) -> None:
+        """Load a given post_data dict into the publish tab fields.
+        The expected keys match `prepare_post_data` output.
+        """
+        # Title and main content
+        main_content = post_data.get('main_content') or ""
+        # If the content includes a bold title inserted from AI tab, try to extract it
+        # If it's HTML <b>title</b> we can extract a simple plain title
+        title = ""
+        if main_content.startswith('<b>') and '</b>' in main_content:
+            try:
+                t_end = main_content.index('</b>')
+                title = re.sub('<.*?>', '', main_content[3:t_end])
+                main_content = main_content[t_end+4:].strip()
+            except Exception:
+                # fallback to no splitting
+                pass
+
+        self.title_edit.setText(title)
+        self.edit_area.setPlainText(re.sub(r'<.*?>', '', main_content))
+
+        # Presentation media
+        path = post_data.get('presentation_path')
+        ptype = post_data.get('presentation_type')
+        self.presentation_media_path = path
+        self.presentation_media_type = ptype
+        if path:
+            # Update preview helper
+            self.post_preview.set_image(path)
+            if hasattr(self, 'current_media_label'):
+                self.current_media_label.setText(Path(path).name)
+            if hasattr(self, 'lbl_media_info'):
+                self.lbl_media_info.setText(Path(path).name)
+        else:
+            self.post_preview.set_image(None)
+            self.current_media_label.setText('Ninguno')
+
+        # Buttons/reply_markup
+        reply_markup = post_data.get('reply_markup')
+        if reply_markup:
+            try:
+                payload = json.loads(reply_markup) if isinstance(reply_markup, str) else reply_markup
+                self.telegram_buttons = payload.get('inline_keyboard', [[]])
+            except Exception:
+                self.telegram_buttons = [[]]
+        else:
+            self.telegram_buttons = [[]]
+        self.update_preview()
+
+        # CTA and hashtags
+        cta_hashtags = post_data.get('cta_hashtags')
+        if cta_hashtags and isinstance(cta_hashtags, str):
+            parts = cta_hashtags.split('\n')
+            self.cta_edit.setText(parts[0] if parts else "")
+            self.hashtags_edit.setText('\n'.join(parts[1:]) if len(parts) > 1 else "")
+
+        # Voice
+        if post_data.get('voice_file'):
+            self.voice_selected_file = post_data.get('voice_file')
+            if hasattr(self, 'lbl_voice_info'):
+                self.lbl_voice_info.setText(Path(self.voice_selected_file).name)
+            # keep compatibility with other name
+            if hasattr(self, 'voice_file_label'):
+                self.voice_file_label.setText(Path(self.voice_selected_file).name)
+            self.voice_title_edit.setText(post_data.get('voice_title', ''))
+            self.voice_description_edit.setPlainText(post_data.get('voice_description', ''))
+
+        # Update UI labels & statistics
+        self.update_preview()
+        self.update_post_statistics()
+
     def publish_post(self):
         """Publish post to Telegram"""
         if self.worker and self.worker.isRunning():
@@ -1298,8 +1392,12 @@ class PublishTab(QWidget):
         # Actualizar info de media
         if self.presentation_media_path:
             filename = os.path.basename(self.presentation_media_path)
-            file_size = os.path.getsize(self.presentation_media_path) / (1024 * 1024)  # MB
-            self.current_media_label.setText(f"{filename} ({file_size:.1f} MB)")
+            try:
+                file_size = os.path.getsize(self.presentation_media_path) / (1024 * 1024)  # MB
+                self.current_media_label.setText(f"{filename} ({file_size:.1f} MB)")
+            except Exception:
+                # If the file does not exist or can't be read, show only the filename
+                self.current_media_label.setText(f"{filename} (desconocido)")
             
             # Verificar límites de tamaño
             if self.presentation_media_type == "photo" and file_size > 10:

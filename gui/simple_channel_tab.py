@@ -164,6 +164,10 @@ class SimpleChannelTab(QWidget):
 
         self.test_bot_btn = QPushButton("🤖 Probar conexión")
         self.test_bot_btn.clicked.connect(self._test_bot_connection)
+
+        self.validate_config_btn = QPushButton("🔎 Probar configuración")
+        self.validate_config_btn.clicked.connect(self._test_configuration)
+        row.addWidget(self.validate_config_btn)
         row.addWidget(self.test_bot_btn)
 
         token_layout.addLayout(row)
@@ -239,6 +243,10 @@ class SimpleChannelTab(QWidget):
         self.remove_selected_btn.clicked.connect(self._remove_selected_rows)
         buttons_row.addWidget(self.remove_selected_btn)
 
+        self.set_chat_btn = QPushButton("📌 Establecer como chat")
+        self.set_chat_btn.clicked.connect(self._set_selected_as_chat)
+        buttons_row.addWidget(self.set_chat_btn)
+
         buttons_row.addStretch()
         results_layout.addLayout(buttons_row)
 
@@ -305,6 +313,22 @@ class SimpleChannelTab(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Error conectando con el bot: {exc}")
             self.status_label.setText("Error al conectar con el bot")
+
+    @Slot()
+    def _test_configuration(self) -> None:
+        """Validate token and configured chat in `Config` using check_telegram_bot_and_chat."""
+        token = self._ensure_token()
+        if not token:
+            return
+
+        self.status_label.setText("Validando configuración...")
+        ok, message = self.config.check_telegram_bot_and_chat()
+        if ok:
+            QMessageBox.information(self, "Configuración válida", f"✅ {message}")
+            self.status_label.setText("Configuración valida")
+        else:
+            QMessageBox.critical(self, "Configuración inválida", f"❌ {message}\n\nAsegúrate que el token es correcto y que el bot está en el canal como administrador.")
+            self.status_label.setText(f"Error: {message}")
 
     @Slot()
     def _lookup_single_channel(self) -> None:
@@ -429,6 +453,29 @@ class SimpleChannelTab(QWidget):
             self.progress_bar.setVisible(False)
             self.progress_bar.setRange(0, 100)
             self.list_admin_btn.setEnabled(True)
+
+    @Slot()
+    def _set_selected_as_chat(self) -> None:
+        """Take the currently selected row in the channels table and set it as the current config.telegram_chat_id."""
+        selected_rows = {idx.row() for idx in self.channels_table.selectedIndexes()}
+        if not selected_rows:
+            QMessageBox.information(self, "Sin selección", "Selecciona al menos un canal en la lista.")
+            return
+        # Use the first selected
+        row = sorted(selected_rows)[0]
+        item = self.channels_table.item(row, 2)
+        if not item:
+            QMessageBox.warning(self, "Error", "No se pudo leer el ID del canal seleccionado.")
+            return
+        selected_id = item.text().strip()
+        # Save into config
+        self.config.telegram_chat_id = selected_id
+        try:
+            self.config.save_config()
+        except Exception as exc:
+            logger.warning("No se pudo guardar la configuración: %s", exc)
+        QMessageBox.information(self, "Configuración guardada", f"ID de chat guardado: {selected_id}")
+        self.status_label.setText(f"Chat configurado: {selected_id}")
 
     @Slot(int, str)
     def _on_lookup_progress(self, value: int, message: str) -> None:

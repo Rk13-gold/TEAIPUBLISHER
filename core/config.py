@@ -25,8 +25,8 @@ class Config:
         self.database_path = os.path.join(os.path.dirname(__file__), 'database.db')
         
         # Telegram API configuration
-        self.telegram_token = '7912067011:AAHDwmvPgD0xpf_Ick0FfyeAAUmtlXQTMcs'
-        self.telegram_chat_id = '-1002729713596'
+        self.telegram_token = '7273716189:AAHymr5zkoATEHktovNCuKZfVq2YMO4qzC0'
+        self.telegram_chat_id = '-1002215165925'
         
         # Telegram Bot API configuration for channel management
         self.bot_token = self.telegram_token  # Use same token for bot operations
@@ -218,6 +218,35 @@ class Config:
             issues.append("Image upload directory does not exist")
             
         return len(issues) == 0, issues
+
+    def check_telegram_bot_and_chat(self):
+        """Validate the bot token and chat using Telegram Bot API.
+
+        Returns: (ok: bool, message: str)
+        """
+        try:
+            token = getattr(self, 'bot_token', None) or getattr(self, 'telegram_token', None)
+            if not token:
+                return False, "Bot token not configured"
+            chat_id = getattr(self, 'telegram_chat_id', None)
+            if not chat_id:
+                return False, "Telegram chat ID not configured"
+            # Local import to avoid module import cycles during startup
+            from services.telegram_bot_client import TelegramBotClient
+            client = TelegramBotClient(token)
+            if not client.test_connection():
+                return False, "Bot token invalid or cannot connect to Bot API"
+            chat_info = client.get_chat_info(chat_id)
+            if not chat_info:
+                return False, f"Chat not found for ID/username: {chat_id}"
+            perms = client.validate_bot_permissions(chat_id)
+            status = perms.get('status') if perms else None
+            if status not in ['administrator', 'creator']:
+                # Allow non-admin too but warn
+                return True, "Bot can see the chat but does not appear to be administrator. Ensure it has permission to send messages."
+            return True, "Bot and chat validation OK"
+        except Exception as e:
+            return False, str(e)
 
     def reset_to_defaults(self):
         """Reset configuration to default values"""
