@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtCore import Qt, QThread, Signal, QDateTime
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 import requests
 import json
 import os
@@ -28,6 +28,38 @@ try:
     from gui.emoji_picker import EmojiPicker
 except ImportError:
     EmojiPicker = None
+
+try:
+    from gui.emoji_renderer import render_emoji
+except ImportError:
+    def render_emoji(char, size=28):
+        return None
+
+try:
+    from gui.emoji_text_helper import insert_emoji_textedit, emoji_document_to_plaintext
+except ImportError:
+    # Fallback: plain text insertion
+    def insert_emoji_textedit(textedit, emoji, size=28):
+        cursor = textedit.textCursor()
+        cursor.insertText(emoji)
+    def emoji_document_to_plaintext(doc):
+        return doc.toPlainText()
+
+try:
+    from utils.telegram_format import prepare_content_for_telegram, build_post_content
+except ImportError:
+    def prepare_content_for_telegram(c):
+        return c
+    def build_post_content(title, body, cta='', hashtags=''):
+        parts = [p for p in [title and f'<b>{title}</b>', body] if p]
+        if cta or hashtags:
+            parts.append('\n'.join(p for p in [cta, hashtags] if p))
+        return '\n\n'.join(parts)
+
+try:
+    from gui.emoji_line_edit import EmojiLineEdit
+except ImportError:
+    EmojiLineEdit = None
 
 try:
     from gui.button_config_dialog import ButtonConfigDialog
@@ -68,8 +100,10 @@ class PublishWorker(QThread):
     def run(self):
         """Execute professional publishing sequence"""
         try:
-            token = getattr(self.config, "bot_token", None) or getattr(self.config, "telegram_token", None)
-            chat_id = self.config.telegram_chat_id
+            from core.database import get_telegram_credentials
+            db_token, db_chat_id = get_telegram_credentials()
+            token = db_token or getattr(self.config, "bot_token", None) or getattr(self.config, "telegram_token", None)
+            chat_id = db_chat_id or self.config.telegram_chat_id
 
             # Validate token and chat before starting publish sequence
             if not token:
@@ -646,21 +680,31 @@ class PublishTab(QWidget):
         title_label.setFixedWidth(40)
         title_img_layout.addWidget(title_label)
         
-        self.title_edit = QLineEdit()
+        self.title_edit = EmojiLineEdit() if EmojiLineEdit else QLineEdit()
         self.title_edit.setPlaceholderText("Título del post")
         self.title_edit.textChanged.connect(self.update_preview)
         title_img_layout.addWidget(self.title_edit, 1)  # Takes remaining space
 
         # Emoji button for title
-        self.title_emoji_btn = QPushButton("😊")
+        self.title_emoji_btn = QPushButton()
         self.title_emoji_btn.setFixedSize(36, 36)
-        self.title_emoji_btn.setProperty("class", "emoji-btn")
+        _pix = render_emoji("😊", 22)
+        if _pix and not _pix.isNull():
+            self.title_emoji_btn.setIcon(QIcon(_pix))
+            self.title_emoji_btn.setIconSize(_pix.size())
+        else:
+            self.title_emoji_btn.setText(":)")
         self.title_emoji_btn.setToolTip("Insertar emoji en el título")
         self.title_emoji_btn.clicked.connect(self.insert_emoji_title)
+        self.title_emoji_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
+            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
+            QPushButton:pressed { background: #3a3d6b; }
+        """)
         title_img_layout.addWidget(self.title_emoji_btn)
 
         # Image selection button
-        self.image_btn = QPushButton("📷")
+        self.image_btn = QPushButton("Img")
         self.image_btn.setFixedSize(28, 28)
         self.image_btn.setToolTip("Seleccionar imagen/vídeo/GIF")
         self.image_btn.clicked.connect(self.select_image_for_preview)
@@ -687,10 +731,21 @@ class PublishTab(QWidget):
         buttons_layout.addWidget(self.button_config_btn)
         
         # Emoji button
-        self.emoji_btn = QPushButton("😊")
+        self.emoji_btn = QPushButton()
         self.emoji_btn.setFixedSize(36, 36)
+        _pix = render_emoji("😊", 22)
+        if _pix and not _pix.isNull():
+            self.emoji_btn.setIcon(QIcon(_pix))
+            self.emoji_btn.setIconSize(_pix.size())
+        else:
+            self.emoji_btn.setText(":)")
         self.emoji_btn.setToolTip("Insertar emoji")
         self.emoji_btn.clicked.connect(self.insert_emoji_content)
+        self.emoji_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
+            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
+            QPushButton:pressed { background: #3a3d6b; }
+        """)
         buttons_layout.addWidget(self.emoji_btn)
         
         buttons_layout.addStretch()
@@ -767,17 +822,26 @@ class PublishTab(QWidget):
         # Title row with emoji button
         title_row = QHBoxLayout()
         title_row.addWidget(QLabel("Título:"))
-        self.voice_title_edit = QLineEdit()
+        self.voice_title_edit = EmojiLineEdit() if EmojiLineEdit else QLineEdit()
         self.voice_title_edit.setPlaceholderText("Título del audio (opcional)")
         title_row.addWidget(self.voice_title_edit)
         
         # Emoji button for voice title
-        self.voice_emoji_btn = QPushButton("😊")
+        self.voice_emoji_btn = QPushButton()
         self.voice_emoji_btn.setFixedSize(32, 32)
-        self.voice_emoji_btn.setFont(QFont("Segoe UI Emoji", 20))
-        self.voice_emoji_btn.setStyleSheet("color: none; background: none; border: none;")
+        _pix = render_emoji("😊", 20)
+        if _pix and not _pix.isNull():
+            self.voice_emoji_btn.setIcon(QIcon(_pix))
+            self.voice_emoji_btn.setIconSize(_pix.size())
+        else:
+            self.voice_emoji_btn.setText(":)")
         self.voice_emoji_btn.setToolTip("Agregar emoji al título del audio")
         self.voice_emoji_btn.clicked.connect(self.insert_emoji_voice_title)
+        self.voice_emoji_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
+            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
+            QPushButton:pressed { background: #3a3d6b; }
+        """)
         title_row.addWidget(self.voice_emoji_btn)
         metadata_layout.addLayout(title_row)
         
@@ -803,15 +867,26 @@ class PublishTab(QWidget):
         # CTA section
         cta_layout = QHBoxLayout()
         cta_layout.addWidget(QLabel("💬 CTA:"))
-        self.cta_edit = QLineEdit()
+        self.cta_edit = EmojiLineEdit() if EmojiLineEdit else QLineEdit()
         self.cta_edit.setPlaceholderText("¡Comparte si te gustó! 👍")
         self.cta_edit.textChanged.connect(self.update_preview)
         self.cta_edit.textChanged.connect(self.update_post_statistics)
         cta_layout.addWidget(self.cta_edit)
         
-        self.cta_emoji_btn = QPushButton("😊")
+        self.cta_emoji_btn = QPushButton()
         self.cta_emoji_btn.setFixedSize(32, 32)
+        _pix = render_emoji("😊", 20)
+        if _pix and not _pix.isNull():
+            self.cta_emoji_btn.setIcon(QIcon(_pix))
+            self.cta_emoji_btn.setIconSize(_pix.size())
+        else:
+            self.cta_emoji_btn.setText(":)")
         self.cta_emoji_btn.clicked.connect(self.insert_emoji_cta)
+        self.cta_emoji_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
+            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
+            QPushButton:pressed { background: #3a3d6b; }
+        """)
         cta_layout.addWidget(self.cta_emoji_btn)
         engagement_layout.addLayout(cta_layout)
         
@@ -921,6 +996,20 @@ class PublishTab(QWidget):
         else:
             QMessageBox.information(self, "Info", "Función de emoji no disponible")
 
+    def insert_emoji_voice_title(self):
+        """Insert emoji into voice title field"""
+        if EmojiPicker:
+            picker = EmojiPicker(self)
+            if picker.exec():
+                emoji = picker.selected_emoji
+                if emoji:
+                    cursor = self.voice_title_edit.cursorPosition()
+                    text = self.voice_title_edit.text()
+                    self.voice_title_edit.setText(text[:cursor] + emoji + text[cursor:])
+                    self.voice_title_edit.setCursorPosition(cursor + len(emoji))
+        else:
+            QMessageBox.information(self, "Info", "Función de emoji no disponible")
+
     def insert_emoji_content(self):
         """Insert emoji into content area (from AI Generator)"""
         if EmojiPicker:
@@ -928,22 +1017,7 @@ class PublishTab(QWidget):
             if picker.exec():
                 emoji = picker.selected_emoji
                 if emoji:
-                    cursor = self.edit_area.textCursor()
-                    cursor.insertText(emoji)
-        else:
-            QMessageBox.information(self, "Info", "Función de emoji no disponible")
-
-    def insert_emoji_cta(self):
-        """Insert emoji into CTA field"""
-        if EmojiPicker:
-            picker = EmojiPicker(self)
-            if picker.exec():
-                emoji = picker.selected_emoji
-                if emoji:
-                    cursor = self.cta_edit.cursorPosition()
-                    text = self.cta_edit.text()
-                    self.cta_edit.setText(text[:cursor] + emoji + text[cursor:])
-                    self.cta_edit.setCursorPosition(cursor + len(emoji))
+                    insert_emoji_textedit(self.edit_area, emoji)
         else:
             QMessageBox.information(self, "Info", "Función de emoji no disponible")
 
@@ -998,7 +1072,7 @@ class PublishTab(QWidget):
         if hasattr(self, 'post_preview') and self.post_preview:
             # Get content parts
             title = self.title_edit.text().strip()
-            content = self.edit_area.toPlainText().strip()
+            content = emoji_document_to_plaintext(self.edit_area.document()).strip()
             cta = self.cta_edit.text().strip()
             hashtags = self.hashtags_edit.text().strip()
             
@@ -1046,7 +1120,7 @@ class PublishTab(QWidget):
         elif hasattr(self, 'preview_area'):
             # Fallback text preview
             title = self.title_edit.text().strip()
-            content = self.edit_area.toPlainText().strip()
+            content = emoji_document_to_plaintext(self.edit_area.document()).strip()
             cta = self.cta_edit.text().strip()
             hashtags = self.hashtags_edit.text().strip()
             
@@ -1082,7 +1156,7 @@ class PublishTab(QWidget):
 
     def update_character_counter(self):
         """Update character counter for content"""
-        content = self.edit_area.toPlainText()
+        content = emoji_document_to_plaintext(self.edit_area.document())
         char_count = len(content)
         word_count = len([word for word in content.split() if word])
         self.char_counter.setText(f"{char_count} caracteres ({word_count} palabras)")
@@ -1110,17 +1184,14 @@ class PublishTab(QWidget):
 
     def prepare_post_data(self):
         """Prepare post data for publishing"""
-        # Get content
-        main_content = self.edit_area.toPlainText().strip()
+        # Get content with formatting (bold, italic, etc preserved)
+        raw_content = emoji_document_to_plaintext(self.edit_area.document()).strip()
         title = self.title_edit.text().strip()
-        
-        if title and main_content:
-            full_content = f"<b>{title}</b>\n\n{main_content}"
-        elif title:
-            full_content = f"<b>{title}</b>"
-        else:
-            full_content = main_content
-        
+
+        # Apply Telegram formatting to content
+        main_content = prepare_content_for_telegram(raw_content)
+        full_content = build_post_content(title, main_content)
+
         # Get CTA and hashtags
         cta = self.cta_edit.text().strip()
         hashtags = self.hashtags_edit.text().strip()
@@ -1177,7 +1248,8 @@ class PublishTab(QWidget):
                 pass
 
         self.title_edit.setText(title)
-        self.edit_area.setPlainText(re.sub(r'<.*?>', '', main_content))
+        self.edit_area.setHtml(main_content if main_content else '')
+        self.edit_area.moveCursor(self.edit_area.textCursor().End)
 
         # Presentation media
         path = post_data.get('presentation_path')
@@ -1356,7 +1428,7 @@ class PublishTab(QWidget):
         """Update real-time post statistics"""
         # Calcular caracteres totales
         title = self.title_edit.text().strip()
-        content = self.edit_area.toPlainText().strip()
+        content = emoji_document_to_plaintext(self.edit_area.document()).strip()
         cta = self.cta_edit.text().strip()
         hashtags = self.hashtags_edit.text().strip()
         

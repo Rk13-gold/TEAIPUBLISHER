@@ -20,13 +20,13 @@ class BotChannelIDExtractor:
         self.bot_token = bot_token
         self.base_url = f"https://api.telegram.org/bot{bot_token}"
         self.session = requests.Session()
-        self.session.timeout = 30
+        self._timeout = (5, 10)
     
     def _make_request(self, method: str, params: Dict = None) -> Optional[Dict]:
         """Make a request to Telegram Bot API"""
         try:
             url = f"{self.base_url}/{method}"
-            response = self.session.get(url, params=params or {})
+            response = self.session.get(url, params=params or {}, timeout=self._timeout)
             response.raise_for_status()
             
             data = response.json()

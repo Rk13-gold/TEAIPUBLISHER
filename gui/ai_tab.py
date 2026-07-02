@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QIntValidator, QFont
+from PySide6.QtGui import QIntValidator, QFont, QIcon
 from pathlib import Path
 from html import escape
 from html.parser import HTMLParser
@@ -17,6 +17,10 @@ from ai_integration.groq_client import GroqClient
 from services.telegram_bot_client import TelegramBotClient
 from gui.post_preview import PostPreviewWidget
 from gui.emoji_picker import EmojiPicker
+from gui.emoji_renderer import render_emoji
+from gui.emoji_text_helper import insert_emoji_textedit, emoji_document_to_plaintext
+from gui.emoji_line_edit import EmojiLineEdit
+from utils.telegram_format import prepare_content_for_telegram, build_post_content
 from gui.button_config_dialog import ButtonConfigDialog
 from gui.web_search_dialog import WebSearchDialog
 
@@ -160,19 +164,27 @@ class AITab(QWidget):
 
         # --- Título, emoji y botón de imagen arriba ---
         title_img_layout = QHBoxLayout()
-        self.title_edit = QLineEdit()
+        self.title_edit = EmojiLineEdit()
         self.title_edit.setPlaceholderText("Título del post")
         self.title_edit.textChanged.connect(self.update_preview)
         title_img_layout.addWidget(QLabel("Título:"))
         title_img_layout.addWidget(self.title_edit, 2)
 
         # Botón de emoji para título (corregido)
-        self.title_emoji_btn = QPushButton("🛸")
+        self.title_emoji_btn = QPushButton()
         self.title_emoji_btn.setFixedSize(34, 34)
-        self.title_emoji_btn.setFont(QFont("Segoe UI Emoji", 22))
-        self.title_emoji_btn.setProperty("class", "emoji-btn")
-        self.title_emoji_btn.setStyleSheet("color: none; background: none; border: none;")
+        _pix = render_emoji("😊", 20)
+        if _pix and not _pix.isNull():
+            self.title_emoji_btn.setIcon(QIcon(_pix))
+            self.title_emoji_btn.setIconSize(_pix.size())
+        else:
+            self.title_emoji_btn.setText(":)")
         self.title_emoji_btn.clicked.connect(self.insert_emoji_title)
+        self.title_emoji_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
+            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
+            QPushButton:pressed { background: #3a3d6b; }
+        """)
         title_img_layout.addWidget(self.title_emoji_btn, 0)
 
         # Botón de imagen
@@ -215,12 +227,20 @@ class AITab(QWidget):
         buttons_row.addWidget(self.button_config_btn)
 
         # Botón de emoji para el área de edición (corregido)
-        self.emoji_btn = QPushButton("🛸")
+        self.emoji_btn = QPushButton()
         self.emoji_btn.setFixedSize(34, 34)
-        self.emoji_btn.setFont(QFont("Segoe UI Emoji", 22))
-        self.emoji_btn.setProperty("class", "emoji-btn")
-        self.emoji_btn.setStyleSheet("color: none; background: none; border: none;")
+        _pix = render_emoji("😊", 20)
+        if _pix and not _pix.isNull():
+            self.emoji_btn.setIcon(QIcon(_pix))
+            self.emoji_btn.setIconSize(_pix.size())
+        else:
+            self.emoji_btn.setText(":)")
         self.emoji_btn.clicked.connect(self.insert_emoji)
+        self.emoji_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
+            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
+            QPushButton:pressed { background: #3a3d6b; }
+        """)
         buttons_row.addWidget(self.emoji_btn)
 
         buttons_row.addStretch(1)
@@ -310,7 +330,7 @@ class AITab(QWidget):
     # --- Actualizar previsualización ---
     def update_preview(self):
         title = self.title_edit.text().strip()
-        text = self.edit_area.toPlainText()
+        text = emoji_document_to_plaintext(self.edit_area.document())
         preview_text = self.format_telegram_post(f"{title}\n\n{text}" if title else text)
         preview_html = preview_text.replace("\n", "<br>")
         # If there's a video attached, annotate the preview with a video marker
@@ -399,11 +419,10 @@ class AITab(QWidget):
     def open_in_publish(self):
         """Send the current post draft to Publish tab, pre-filling the fields there."""
         # Prepare post_data similar to publish_post
-        content = self.edit_area.toPlainText().strip()
+        raw_content = emoji_document_to_plaintext(self.edit_area.document()).strip()
         title = self.title_edit.text().strip()
-        if title:
-            content = f"<b>{title}</b>\n\n{content}"
-        content = self._prepare_content_for_telegram(content)
+        body = prepare_content_for_telegram(raw_content)
+        content = build_post_content(title, body)
 
         keyboard = []
         if self.telegram_buttons and any(self.telegram_buttons):
@@ -456,8 +475,7 @@ class AITab(QWidget):
         if picker.exec():
             emoji = picker.selected_emoji
             if emoji:
-                cursor = self.edit_area.textCursor()
-                cursor.insertText(emoji)
+                insert_emoji_textedit(self.edit_area, emoji)
 
     # --- Métodos de IA ---
     def build_prompt_messages(self, topic, instructions, user_message):
@@ -574,7 +592,7 @@ class AITab(QWidget):
                 new = (cur + "\n\n" + selected) if cur else selected
                 self.brief_instructions.setPlainText(new)
             else:
-                cur = self.edit_area.toPlainText().strip()
+                cur = emoji_document_to_plaintext(self.edit_area.document()).strip()
                 new = (cur + "\n\n" + selected) if cur else selected
                 self.edit_area.setPlainText(new)
             # Save web snippet in AI tab context so it's included in payload
@@ -582,18 +600,19 @@ class AITab(QWidget):
 
     # --- Publicar en Telegram ---
     def publish_post(self):
-        content = self.edit_area.toPlainText().strip()
+        raw_content = emoji_document_to_plaintext(self.edit_area.document()).strip()
         title = self.title_edit.text().strip()
-        if title:
-            content = f"<b>{title}</b>\n\n{content}"
-        content = self._prepare_content_for_telegram(content)
+        body = prepare_content_for_telegram(raw_content)
+        content = build_post_content(title, body)
         if not content:
             QMessageBox.warning(self, "Error", "El contenido a publicar no puede estar vacío.")
             return
 
-        # Prefer explicit bot_token (used for channel posting) and fallback to telegram_token
-        token = getattr(self.config, "bot_token", None) or getattr(self.config, "telegram_token", None)
-        chat_id = self.config.telegram_chat_id
+        # Prefer DB config (Centro de Mando), fallback to bot_token / telegram_token
+        from core.database import get_telegram_credentials
+        db_token, db_chat_id = get_telegram_credentials()
+        token = db_token or getattr(self.config, "bot_token", None) or getattr(self.config, "telegram_token", None)
+        chat_id = db_chat_id or self.config.telegram_chat_id
 
         # Validate chat and bot access before attempting to send
         if not token:

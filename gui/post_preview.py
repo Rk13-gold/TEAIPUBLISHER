@@ -1,6 +1,21 @@
+import re
+
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QTextEdit, QScrollArea, QFrame, QSizePolicy
-from PySide6.QtGui import QPixmap
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap, QTextCursor, QTextImageFormat, QImage, QTextDocument
+from PySide6.QtCore import Qt, QUrl
+
+from gui.emoji_renderer import render_emoji
+
+# Regex to match emoji characters (most Unicode emoji ranges)
+_EMOJI_RE = re.compile(
+    '[\U0001F000-\U0001FFFF\U00002700-\U000027BF\U00002600-\U000026FF'
+    '\U00002B00-\U00002BFF\U00002300-\U000023FF\U0000FE00-\U0000FE0F'
+    '\U00002000-\U0000206F\U00002100-\U0000214F\u00A9\u00AE\u203C\u2049'
+    '\u2122\u2139\u2194-\u2199\u21A9\u21AA\u231A\u231B\u2328\u23CF'
+    '\u23E9-\u23F3\u23F8-\u23FA\u24C2\u25AA\u25AB\u25B6\u25C0\u25FB-\u25FE'
+    '\u2600-\u27BF\u2934\u2935\u2B05\u2B06\u2B07\u2B1B\u2B1C\u2B50'
+    '\u2B55\u3030\u303D\u3297\u3299]+'
+)
 
 class PostPreviewWidget(QWidget):
     def __init__(self, parent=None):
@@ -111,10 +126,61 @@ class PostPreviewWidget(QWidget):
         self.image_label.setVisible(False)
 
     def set_text(self, text):
-        self.text_preview.setPlainText(text)
+        doc = self.text_preview.document()
+        doc.clear()
+        cursor = QTextCursor(doc)
+        emoji_size = 13
+        pos = 0
+        idx = 0
+        for m in _EMOJI_RE.finditer(text):
+            if m.start() > pos:
+                cursor.insertText(text[pos:m.start()])
+            emoji = m.group()
+            pix = render_emoji(emoji, emoji_size)
+            if pix and not pix.isNull():
+                pix = pix.scaled(emoji_size, emoji_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                img = pix.toImage()
+                name = f'pv_{idx}'
+                doc.addResource(QTextDocument.ImageResource, QUrl(name), img)
+                fmt = QTextImageFormat()
+                fmt.setName(name)
+                fmt.setWidth(emoji_size)
+                fmt.setHeight(emoji_size)
+                cursor.insertImage(fmt)
+            else:
+                cursor.insertText(emoji)
+            pos = m.end()
+            idx += 1
+        if pos < len(text):
+            cursor.insertText(text[pos:])
 
     def set_html(self, html):
-        self.text_preview.setHtml(html)
+        # Replace emoji characters in HTML with <img> placeholders
+        emoji_size = 13
+        parts = []
+        idx = 0
+        pos = 0
+        for m in _EMOJI_RE.finditer(html):
+            if m.start() > pos:
+                parts.append(html[pos:m.start()])
+            parts.append(f'<img src="emoji_{idx}" width="{emoji_size}" height="{emoji_size}">')
+            pos = m.end()
+            idx += 1
+        if pos < len(html):
+            parts.append(html[pos:])
+        modified_html = ''.join(parts)
+        doc = self.text_preview.document()
+        doc.setHtml(modified_html)
+        # Add image resources for each placeholder
+        idx = 0
+        for m in _EMOJI_RE.finditer(html):
+            emoji = m.group()
+            pix = render_emoji(emoji, emoji_size)
+            if pix and not pix.isNull():
+                pix = pix.scaled(emoji_size, emoji_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                img = pix.toImage()
+                doc.addResource(QTextDocument.ImageResource, QUrl(f'emoji_{idx}'), img)
+            idx += 1
 
     def set_buttons(self, buttons, layout_type="row"):
         # Limpia botones previos

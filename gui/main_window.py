@@ -15,9 +15,11 @@ from PySide6.QtGui import QAction, QIcon, QFont, QPixmap, QPalette, QColor
 # Importar las pestañas
 from gui.publish_tab import PublishTab
 from gui.ai_tab import AITab
-from gui.metrics_tab import MetricsTab
 from gui.simple_admin_channels_tab import SimpleAdminChannelsTab
 from gui.simple_channel_tab import SimpleChannelTab
+from gui.control_center_tab import ControlCenterTab
+from gui.id_finder_tab import IDFinderTab
+from gui.seller_bot_tab import SellerBotTab
 from services.telegram_bot_client import TelegramBotClient
 
 logger = logging.getLogger(__name__)
@@ -63,7 +65,7 @@ class MainWindow(QMainWindow):
         
         # Initialize UI
         self._init_ui()
-        self._create_menu()
+        self.menuBar().hide()
         
         # Setup status updates
         self.setup_status_timer()
@@ -119,11 +121,6 @@ class MainWindow(QMainWindow):
                 background-color: #107c10;
             }
             
-            /* Metrics Tab - Purple Theme */
-            QTabBar::tab:selected[objectName="metrics_tab"] {
-                background-color: #881798;
-            }
-            
             /* Admin Channels Tab - Orange Theme */
             QTabBar::tab:selected[objectName="admin_tab"] {
                 background-color: #ff8c00;
@@ -131,6 +128,16 @@ class MainWindow(QMainWindow):
             
             /* Channel Manager Tab - Teal Theme */
             QTabBar::tab:selected[objectName="channel_tab"] {
+                background-color: #008080;
+            }
+            
+            /* Control Center Tab - Red Theme */
+            QTabBar::tab:selected[objectName="control_center_tab"] {
+                background-color: #c62828;
+            }
+            
+            /* ID Finder Tab - Teal Theme */
+            QTabBar::tab:selected[objectName="id_finder_tab"] {
                 background-color: #008080;
             }
             """
@@ -185,9 +192,11 @@ class MainWindow(QMainWindow):
         # Añadir las pestañas
         self._add_ai_tab()
         self._add_publish_tab()
-        self._add_metrics_tab()
         self._add_admin_channels_tab()
         self._add_channel_manager_tab()
+        self._add_control_center_tab()
+        self._add_id_finder_tab()
+        self._add_seller_bot_tab()
         
         # Añadir el widget de pestañas al layout principal
         main_layout.addWidget(self.tabs, 1)  # El 1 es el factor de estiramiento
@@ -454,19 +463,6 @@ class MainWindow(QMainWindow):
         # Volver a intentar cargar la pestaña
         self._add_publish_tab(retry_count, max_retries)
 
-    def _add_metrics_tab(self):
-        """Add Metrics tab with purple theme"""
-        try:
-            self.metrics_tab = MetricsTab()
-            tab_index = self.tabs.addTab(self.metrics_tab, "📊 Metrics")
-            self.tabs.setTabIcon(tab_index, QIcon("📊"))
-            
-            # Set tab properties for theming
-            self.tabs.tabBar().setTabData(tab_index, {"theme": "purple", "name": "metrics_tab"})
-            
-        except Exception as e:
-            self._add_error_tab("📊 Metrics", e, "purple")
-
     def _add_admin_channels_tab(self):
         """Add Admin Channels tab with orange theme"""
         try:
@@ -483,7 +479,7 @@ class MainWindow(QMainWindow):
     def _add_channel_manager_tab(self):
         """Add Channel Manager tab with teal theme"""
         try:
-            self.channel_manager_tab = SimpleChannelTab()
+            self.channel_manager_tab = SimpleChannelTab(self.config)
             tab_index = self.tabs.addTab(self.channel_manager_tab, "🎛️ Channel Manager")
             self.tabs.setTabIcon(tab_index, QIcon("🎛️"))
             
@@ -492,6 +488,30 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             self._add_error_tab("🎛️ Channel Manager", e, "teal")
+
+    def _add_control_center_tab(self):
+        try:
+            self.control_center_tab = ControlCenterTab(self.config)
+            tab_index = self.tabs.addTab(self.control_center_tab, "🎛️ Centro de Mando")
+            self.tabs.tabBar().setTabData(tab_index, {"theme": "red", "name": "control_center_tab"})
+        except Exception as e:
+            self._add_error_tab("🎛️ Centro de Mando", e, "red")
+
+    def _add_id_finder_tab(self):
+        try:
+            self.id_finder_tab = IDFinderTab(self.config)
+            tab_index = self.tabs.addTab(self.id_finder_tab, "🔍 ID Finder")
+            self.tabs.tabBar().setTabData(tab_index, {"theme": "teal", "name": "id_finder_tab"})
+        except Exception as e:
+            self._add_error_tab("🔍 ID Finder", e, "teal")
+
+    def _add_seller_bot_tab(self):
+        try:
+            self.seller_bot_tab = SellerBotTab(self.config)
+            tab_index = self.tabs.addTab(self.seller_bot_tab, "🤖 Bot Vendedor")
+            self.tabs.tabBar().setTabData(tab_index, {"theme": "purple", "name": "seller_bot_tab"})
+        except Exception as e:
+            self._add_error_tab("🤖 Bot Vendedor", e, "purple")
 
     def _add_error_tab(self, name, exception, theme_color):
         """Add error tab with consistent styling"""
@@ -588,91 +608,7 @@ class MainWindow(QMainWindow):
             
         self.statusBar().showMessage(status_msg)
 
-    def _create_menu(self):
-        """Create modern professional menu bar"""
-        menu_bar = self.menuBar()
-        
-        # File menu
-        file_menu = menu_bar.addMenu("📁 File")
-        
-        # New Project action
-        new_action = QAction("🆕 New Project", self)
-        new_action.setShortcut("Ctrl+N")
-        new_action.triggered.connect(self._new_project)
-        file_menu.addAction(new_action)
-        
-        # Open Project action
-        open_action = QAction("📂 Open Project", self)
-        open_action.setShortcut("Ctrl+O")
-        open_action.triggered.connect(self._open_project)
-        file_menu.addAction(open_action)
-        
-        # Save Project action
-        save_action = QAction("💾 Save Project", self)
-        save_action.setShortcut("Ctrl+S")
-        save_action.triggered.connect(self._save_project)
-        file_menu.addAction(save_action)
-        
-        file_menu.addSeparator()
-        
-        # Exit action
-        exit_action = QAction("🚪 Exit", self)
-        exit_action.setShortcut("Ctrl+Q")
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-        
-        # Tools menu
-        tools_menu = menu_bar.addMenu("🔧 Tools")
-        
-        # Configuration action
-        config_action = QAction("⚙️ Settings", self)
-        config_action.setShortcut("Ctrl+,")
-        config_action.triggered.connect(self._open_settings)
-        tools_menu.addAction(config_action)
-        
-        # Test Connection action
-        test_action = QAction("🔗 Test Telegram Connection", self)
-        test_action.triggered.connect(self._test_connection)
-        tools_menu.addAction(test_action)
-        
-        # Clear Cache action
-        clear_cache_action = QAction("🗑️ Clear Cache", self)
-        clear_cache_action.triggered.connect(self._clear_cache)
-        tools_menu.addAction(clear_cache_action)
-        
-        # View menu
-        view_menu = menu_bar.addMenu("👁️ View")
-        
-        # Toggle fullscreen
-        fullscreen_action = QAction("🖥️ Toggle Fullscreen", self)
-        fullscreen_action.setShortcut("F11")
-        fullscreen_action.triggered.connect(self._toggle_fullscreen)
-        view_menu.addAction(fullscreen_action)
-        
-        # Theme selection
-        theme_menu = view_menu.addMenu("🎨 Theme")
-        
-        dark_theme_action = QAction("🌙 Dark Theme", self)
-        dark_theme_action.triggered.connect(lambda: self._change_theme("dark"))
-        theme_menu.addAction(dark_theme_action)
-        
-        light_theme_action = QAction("☀️ Light Theme", self)
-        light_theme_action.triggered.connect(lambda: self._change_theme("light"))
-        theme_menu.addAction(light_theme_action)
-        
-        # Help menu
-        help_menu = menu_bar.addMenu("❓ Help")
-        
-        # Documentation action
-        docs_action = QAction("📚 Documentation", self)
-        docs_action.setShortcut("F1")
-        docs_action.triggered.connect(self._open_documentation)
-        help_menu.addAction(docs_action)
-        
-        # About action
-        about_action = QAction("ℹ️ About", self)
-        about_action.triggered.connect(self._show_about)
-        help_menu.addAction(about_action)
+
 
     # Menu action implementations
     def _new_project(self):

@@ -116,6 +116,19 @@ class SimpleChannelTab(QWidget):
 
         self._build_ui()
 
+    def _cleanup_worker(self, attr):
+        worker = getattr(self, attr, None)
+        if worker is not None:
+            if worker.isRunning():
+                worker.quit()
+                worker.wait(2000)
+            worker.deleteLater()
+            setattr(self, attr, None)
+
+    def closeEvent(self, event):
+        self._cleanup_worker('lookup_worker')
+        super().closeEvent(event)
+
     # ------------------------------------------------------------------
     # UI BUILDING
     # ------------------------------------------------------------------
@@ -486,7 +499,7 @@ class SimpleChannelTab(QWidget):
     def _on_lookup_finished(self, channels: List[Dict]) -> None:
         self.bulk_search_btn.setEnabled(True)
         self.progress_bar.setVisible(False)
-        self.lookup_worker = None
+        self._cleanup_worker('lookup_worker')
 
         for channel in channels:
             self._store_channel(channel)
@@ -500,7 +513,7 @@ class SimpleChannelTab(QWidget):
     def _on_lookup_error(self, message: str) -> None:
         self.bulk_search_btn.setEnabled(True)
         self.progress_bar.setVisible(False)
-        self.lookup_worker = None
+        self._cleanup_worker('lookup_worker')
         QMessageBox.critical(self, "Error", message)
         self.status_label.setText(f"Error: {message}")
 

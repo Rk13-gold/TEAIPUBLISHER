@@ -33,13 +33,14 @@ class TelegramBotClient:
         self.bot_token = bot_token
         self.base_url = f"https://api.telegram.org/bot{bot_token}"
         self.session = requests.Session()
-        self.session.timeout = 30
+        # Timeout: connect timeout (5s) + read timeout (10s)
+        self._timeout = (5, 10)
     
     def _make_request(self, method: str, params: Dict = None, *, raise_on_error: bool = False) -> Optional[Dict]:
         """Make a request to Telegram Bot API"""
         try:
             url = f"{self.base_url}/{method}"
-            response = self.session.get(url, params=params or {})
+            response = self.session.get(url, params=params or {}, timeout=self._timeout)
             response.raise_for_status()
             
             data = response.json()
@@ -52,7 +53,11 @@ class TelegramBotClient:
                 return None
                 
         except Exception as e:
-            logger.error(f"Request error for {method}: {e}")
+            err_msg = str(e)
+            if "Max retries exceeded" in err_msg or "Failed to establish a new connection" in err_msg:
+                logger.warning(f"Telegram API ({method}): sin conexion a internet o firewall bloqueando")
+            else:
+                logger.error(f"Request error for {method}: {e}")
             if raise_on_error:
                 raise
             return None
@@ -60,15 +65,14 @@ class TelegramBotClient:
     def get_chat_info(self, chat_id: str) -> Optional[BotChannelInfo]:
         """Get chat information by ID using Bot API"""
         try:
-            # Clean chat ID (remove @ if present)
-            if chat_id.startswith('@'):
-                chat_id = chat_id[1:]
-            elif chat_id.startswith('-100'):
-                # This is already a proper chat ID
-                pass
+            # Normalize chat_id: @username, numeric ID, or raw -100XXXX
+            if chat_id.startswith('-100'):
+                pass                                # Already a proper chat ID
             elif chat_id.isdigit():
-                # Convert to proper format for supergroups/channels
-                chat_id = f"-100{chat_id}"
+                chat_id = f"-100{chat_id}"           # Convert plain number to -100 format
+            else:
+                chat_id = chat_id.lstrip('@')        # Ensure @ prefix for username lookup
+                chat_id = f"@{chat_id}"
             
             result = self._make_request('getChat', {'chat_id': chat_id})
             if not result:
@@ -203,7 +207,11 @@ class TelegramBotClient:
             return False
 
     def get_administered_chats(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Return channels/groups seen via updates where the bot participates."""
+        """Return channels/groups seen via updates where the bot participates.
+
+        Uses offset=0 to avoid confirming updates, so repeated calls still
+        return the same available updates (up to Telegram's 24h window).
+        """
 
         def _extract_chat(update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             for key in ('message', 'edited_message', 'channel_post', 'edited_channel_post'):
@@ -221,7 +229,11 @@ class TelegramBotClient:
             return None
 
         try:
+            # offset=0: ask for ALL available updates starting from update_id=1,
+            # without confirming them. This lets us call getUpdates multiple times
+            # and always get the same updates back (up to Telegram's 24h buffer).
             params = {
+                'offset': 0,
                 'limit': limit,
                 'allowed_updates': '["message","edited_message","channel_post","edited_channel_post","my_chat_member","chat_member"]',
             }

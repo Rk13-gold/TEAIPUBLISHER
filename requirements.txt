@@ -6,3 +6,4 @@ python-telegram-bot>=20.0
 qasync>=0.24.0
 duckduckgo-search>=2.6.5
 ddgs>=0.2.0
+openai>=1.0.0

@@ -65,6 +65,16 @@ class Config:
         self.audio_quality = 'ultra'  # Always maximum quality
         self.audio_format = 'ogg'  # Preferred audio format
         
+        # PayPal settings
+        self.paypal_client_id = ''
+        self.paypal_client_secret = ''
+        self.paypal_sandbox = True
+
+        # AI Content Generator settings (Ollama / OpenAI-compatible)
+        self.ai_gen_base_url = 'http://localhost:11434/v1'
+        self.ai_gen_api_key = ''
+        self.ai_gen_model = 'llama3'
+
         # Content generation settings
         self.ai_temperature = 0.7  # AI generation temperature
         self.ai_max_tokens = 2048  # Maximum tokens for AI generation
@@ -191,9 +201,15 @@ class Config:
             'max_retries': self.max_retries,
             'timeout': self.timeout,
             'max_post_length': self.max_post_length,
-            'audio_quality': self.audio_quality,
-            'audio_format': self.audio_format
-        }
+                'audio_quality': self.audio_quality,
+                'audio_format': self.audio_format,
+                'paypal_client_id': self.paypal_client_id,
+                'paypal_client_secret': self.paypal_client_secret,
+                'paypal_sandbox': self.paypal_sandbox,
+                'ai_gen_base_url': self.ai_gen_base_url,
+                'ai_gen_api_key': self.ai_gen_api_key,
+                'ai_gen_model': self.ai_gen_model
+            }
 
     def test_configuration(self):
         """Test if configuration is valid"""

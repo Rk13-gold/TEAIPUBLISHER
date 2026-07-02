@@ -2,8 +2,9 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QGroupBox, QScrollArea, QWidget, QSizePolicy
 )
 from PySide6.QtCore import Qt, QEvent
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 from gui.emoji_picker import EmojiPicker
+from gui.emoji_renderer import render_emoji
 
 class ButtonConfigDialog(QDialog):
     def __init__(self, parent=None, buttons=None):
@@ -32,13 +33,21 @@ class ButtonConfigDialog(QDialog):
         row_btn_layout.addWidget(add_row_btn, 0, Qt.AlignLeft)
 
         # Botón de emoji para insertar en el texto de los botones
-        self.emoji_btn = QPushButton("🛸")
-        self.emoji_btn.setFont(QFont("Segoe UI Emoji", 24))
+        self.emoji_btn = QPushButton()
         self.emoji_btn.setFixedSize(38, 38)
-        self.emoji_btn.setProperty("class", "emoji-btn")
-        self.emoji_btn.setStyleSheet("color: none; background: none; border: none;")
+        _pix = render_emoji("😊", 24)
+        if _pix and not _pix.isNull():
+            self.emoji_btn.setIcon(QIcon(_pix))
+            self.emoji_btn.setIconSize(_pix.size())
+        else:
+            self.emoji_btn.setText(":)")
         self.emoji_btn.setToolTip("Insertar emoji en el campo de texto activo")
         self.emoji_btn.clicked.connect(self.insert_emoji_to_active)
+        self.emoji_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
+            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
+            QPushButton:pressed { background: #3a3d6b; }
+        """)
         row_btn_layout.addWidget(self.emoji_btn, 0, Qt.AlignLeft)
 
         row_btn_layout.addStretch(1)
