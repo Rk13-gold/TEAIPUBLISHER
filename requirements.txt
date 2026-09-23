@@ -7,3 +7,4 @@ qasync>=0.24.0
 duckduckgo-search>=2.6.5
 ddgs>=0.2.0
 openai>=1.0.0
+cryptography>=41.0.0

@@ -617,18 +617,54 @@ class PublishTab(QWidget):
         cta_layout.setContentsMargins(4, 8, 4, 4)
         
         # CTA Input
+        cta_row = QHBoxLayout()
         self.cta_input = QLineEdit()
         self.cta_input.setPlaceholderText("Ej: ¡Visita nuestro sitio web!")
+        cta_row.addWidget(self.cta_input)
+        self.cta_emoji_btn = QPushButton()
+        self.cta_emoji_btn.setFixedSize(30, 30)
+        _pix = render_emoji("😊", 18)
+        if _pix and not _pix.isNull():
+            self.cta_emoji_btn.setIcon(QIcon(_pix))
+            self.cta_emoji_btn.setIconSize(_pix.size())
+        else:
+            self.cta_emoji_btn.setText(":)")
+        self.cta_emoji_btn.setToolTip("Insertar emoji en el CTA")
+        self.cta_emoji_btn.clicked.connect(self.insert_emoji_cta)
+        self.cta_emoji_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
+            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
+            QPushButton:pressed { background: #3a3d6b; }
+        """)
+        cta_row.addWidget(self.cta_emoji_btn)
         cta_layout.addWidget(QLabel("Texto del CTA:"))
-        cta_layout.addWidget(self.cta_input)
+        cta_layout.addLayout(cta_row)
         # Legacy alias used elsewhere
         self.cta_edit = self.cta_input
         
         # Hashtags Input
+        hash_row = QHBoxLayout()
         self.hashtags_input = QLineEdit()
         self.hashtags_input.setPlaceholderText("#ejemplo #otro")
+        hash_row.addWidget(self.hashtags_input)
+        self.hashtags_emoji_btn = QPushButton()
+        self.hashtags_emoji_btn.setFixedSize(30, 30)
+        _pix = render_emoji("😊", 18)
+        if _pix and not _pix.isNull():
+            self.hashtags_emoji_btn.setIcon(QIcon(_pix))
+            self.hashtags_emoji_btn.setIconSize(_pix.size())
+        else:
+            self.hashtags_emoji_btn.setText(":)")
+        self.hashtags_emoji_btn.setToolTip("Insertar emoji en los hashtags")
+        self.hashtags_emoji_btn.clicked.connect(self.insert_emoji_hashtags)
+        self.hashtags_emoji_btn.setStyleSheet("""
+            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
+            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
+            QPushButton:pressed { background: #3a3d6b; }
+        """)
+        hash_row.addWidget(self.hashtags_emoji_btn)
         cta_layout.addWidget(QLabel("Hashtags:"))
-        cta_layout.addWidget(self.hashtags_input)
+        cta_layout.addLayout(hash_row)
         # Legacy alias used elsewhere
         self.hashtags_edit = self.hashtags_input
         
@@ -898,6 +934,7 @@ class PublishTab(QWidget):
         self.hashtags_edit.textChanged.connect(self.update_preview)
         self.hashtags_edit.textChanged.connect(self.update_post_statistics)
         hashtags_layout.addWidget(self.hashtags_edit)
+
         engagement_layout.addLayout(hashtags_layout)
         
         engagement_group.setLayout(engagement_layout)
@@ -1018,6 +1055,32 @@ class PublishTab(QWidget):
                 emoji = picker.selected_emoji
                 if emoji:
                     insert_emoji_textedit(self.edit_area, emoji)
+        else:
+            QMessageBox.information(self, "Info", "Función de emoji no disponible")
+
+    @staticmethod
+    def _insert_emoji_into(line_edit, emoji):
+        """Inserta un emoji en la posición del cursor de un QLineEdit."""
+        cursor_pos = line_edit.cursorPosition()
+        text = line_edit.text()
+        line_edit.setText(text[:cursor_pos] + emoji + text[cursor_pos:])
+        line_edit.setCursorPosition(cursor_pos + len(emoji))
+
+    def insert_emoji_cta(self):
+        """Insert emoji into CTA field."""
+        if EmojiPicker:
+            picker = EmojiPicker(self)
+            if picker.exec() and picker.selected_emoji:
+                self._insert_emoji_into(self.cta_edit, picker.selected_emoji)
+        else:
+            QMessageBox.information(self, "Info", "Función de emoji no disponible")
+
+    def insert_emoji_hashtags(self):
+        """Insert emoji into hashtags field."""
+        if EmojiPicker:
+            picker = EmojiPicker(self)
+            if picker.exec() and picker.selected_emoji:
+                self._insert_emoji_into(self.hashtags_edit, picker.selected_emoji)
         else:
             QMessageBox.information(self, "Info", "Función de emoji no disponible")
 
