@@ -40,13 +40,14 @@ class Config:
         self.lm_studio_model = 'phi-3-mini-4k-instruct'  # Modelo por defecto, ajusta si usas otro
         self.lm_studio_api_key = ''  # Si tu LM Studio requiere API Key, colócala aquí, si no, déjalo vacío
 
-        # Groq API configuration
-        self.groq_api_key = ''
-        self.groq_model = 'llama-3.1-8b-instant'
-        self.groq_temperature = 0.8
-        self.groq_max_tokens = 900
-        self.groq_top_p = 0.9
-        self.groq_prompt_template = 'ai_integration/prompt_presets/viral_post_template.json'
+        # OmniRoute API configuration (gateway OpenAI-compatible, usa 1 API key para 150+ tiers gratis)
+        self.omniroute_api_key = ''
+        self.omniroute_base_url = 'http://localhost:20128/v1'
+        self.omniroute_model = 'auto/smart'
+        self.omniroute_temperature = 0.8
+        self.omniroute_max_tokens = 1100
+        self.omniroute_top_p = 0.9
+        self.omniroute_prompt_template = 'ai_integration/prompt_presets/viral_post_template.json'
         
         # Application settings
         self.max_post_length = 4096  # Maximum length for Telegram posts
@@ -111,12 +112,13 @@ class Config:
                 'lm_studio_api_url': self.lm_studio_api_url,
                 'lm_studio_model': self.lm_studio_model,
                 'lm_studio_api_key': self.lm_studio_api_key,
-                'groq_api_key': self.groq_api_key,
-                'groq_model': self.groq_model,
-                'groq_temperature': self.groq_temperature,
-                'groq_max_tokens': self.groq_max_tokens,
-                'groq_top_p': self.groq_top_p,
-                'groq_prompt_template': self.groq_prompt_template,
+                'omniroute_api_key': self.omniroute_api_key,
+                'omniroute_base_url': self.omniroute_base_url,
+                'omniroute_model': self.omniroute_model,
+                'omniroute_temperature': self.omniroute_temperature,
+                'omniroute_max_tokens': self.omniroute_max_tokens,
+                'omniroute_top_p': self.omniroute_top_p,
+                'omniroute_prompt_template': self.omniroute_prompt_template,
                 'max_post_length': self.max_post_length,
                 'theme': self.theme,
                 'language': self.language,
@@ -186,12 +188,13 @@ class Config:
     def get_ai_config(self):
         """Get AI configuration as dictionary"""
         return {
-            'groq_api_key': self.groq_api_key,
-            'groq_model': self.groq_model,
-            'groq_temperature': self.groq_temperature,
-            'groq_max_tokens': self.groq_max_tokens,
-            'groq_top_p': self.groq_top_p,
-            'groq_prompt_template': self.groq_prompt_template
+            'omniroute_api_key': self.omniroute_api_key,
+            'omniroute_base_url': self.omniroute_base_url,
+            'omniroute_model': self.omniroute_model,
+            'omniroute_temperature': self.omniroute_temperature,
+            'omniroute_max_tokens': self.omniroute_max_tokens,
+            'omniroute_top_p': self.omniroute_top_p,
+            'omniroute_prompt_template': self.omniroute_prompt_template
         }
 
     def get_publishing_config(self):

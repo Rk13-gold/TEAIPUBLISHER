@@ -13,7 +13,7 @@ import requests
 import json
 import re
 
-from ai_integration.groq_client import GroqClient
+from ai_integration.omniroute_api import OmniRouteAPI
 from services.telegram_bot_client import TelegramBotClient
 from gui.post_preview import PostPreviewWidget
 from gui.emoji_picker import EmojiPicker
@@ -23,20 +23,29 @@ from gui.emoji_line_edit import EmojiLineEdit
 from utils.telegram_format import prepare_content_for_telegram, build_post_content
 from gui.button_config_dialog import ButtonConfigDialog
 from gui.web_search_dialog import WebSearchDialog
+from gui import theme
 
 # --- Worker para la IA ---
-class GroqWorker(QThread):
+class AIWorker(QThread):
     finished = Signal(dict)
     error = Signal(str)
 
-    def __init__(self, client, messages):
+    def __init__(self, client, messages, temperature=0.8, max_tokens=1100, top_p=0.9):
         super().__init__()
         self.client = client
         self.messages = messages
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.top_p = top_p
 
     def run(self):
         try:
-            result = self.client.chat(self.messages)
+            result = self.client.chat(
+                self.messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                top_p=self.top_p,
+            )
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -180,11 +189,7 @@ class AITab(QWidget):
         else:
             self.title_emoji_btn.setText(":)")
         self.title_emoji_btn.clicked.connect(self.insert_emoji_title)
-        self.title_emoji_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
-            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
-            QPushButton:pressed { background: #3a3d6b; }
-        """)
+        self.title_emoji_btn.setStyleSheet(theme.emoji_button_qss())
         title_img_layout.addWidget(self.title_emoji_btn, 0)
 
         # Botón de imagen
@@ -236,11 +241,7 @@ class AITab(QWidget):
         else:
             self.emoji_btn.setText(":)")
         self.emoji_btn.clicked.connect(self.insert_emoji)
-        self.emoji_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
-            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
-            QPushButton:pressed { background: #3a3d6b; }
-        """)
+        self.emoji_btn.setStyleSheet(theme.emoji_button_qss())
         buttons_row.addWidget(self.emoji_btn)
 
         buttons_row.addStretch(1)
@@ -275,9 +276,11 @@ class AITab(QWidget):
 
         main_layout.addLayout(right_side, 2)
 
-        self.groq_client = GroqClient(
-            api_key=getattr(self.config, "groq_api_key", ""),
-            model=getattr(self.config, "groq_model", "mixtral-8x7b-32768")
+        self.ai_client = OmniRouteAPI(
+            api_key=getattr(self.config, "omniroute_api_key", ""),
+            base_url=getattr(self.config, "omniroute_base_url", "http://localhost:20128/v1"),
+            model=getattr(self.config, "omniroute_model", "auto/smart"),
+            timeout=90,
         )
 
         # Imagen: seleccionar desde el botón de imagen o desde el preview
@@ -489,8 +492,8 @@ class AITab(QWidget):
         ]
 
     def send_message(self):
-        if not getattr(self.config, "groq_api_key", ""):
-            QMessageBox.warning(self, "Groq", "Configura tu API Key de Groq en config.json para generar contenido.")
+        if not getattr(self.config, "omniroute_api_key", ""):
+            QMessageBox.warning(self, "OmniRoute", "Configura tu API Key de OmniRoute en config.json para generar contenido.")
             return
 
         user_message = self.input_line.text().strip()
@@ -517,15 +520,20 @@ class AITab(QWidget):
         self.input_line.setEnabled(False)
         self.progress_bar.setVisible(True)
 
-        self.worker = GroqWorker(self.groq_client, messages)
+        self.worker = AIWorker(
+            self.ai_client, messages,
+            temperature=float(getattr(self.config, "omniroute_temperature", 0.8)),
+            max_tokens=int(getattr(self.config, "omniroute_max_tokens", 1100)),
+            top_p=float(getattr(self.config, "omniroute_top_p", 0.9)),
+        )
         self.worker.finished.connect(self.on_ai_response)
         self.worker.error.connect(self.on_ai_error)
         self.worker.start()
 
     def search_and_generate(self):
         # Construct a query from topic + brief and run web search, then generate content
-        if not getattr(self.config, 'groq_api_key', ''):
-            QMessageBox.warning(self, 'Groq', 'Configura tu API Key de Groq en config.json para generar contenido.')
+        if not getattr(self.config, 'omniroute_api_key', ''):
+            QMessageBox.warning(self, 'OmniRoute', 'Configura tu API Key de OmniRoute en config.json para generar contenido.')
             return
         topic = self.topic_input.text().strip()
         instructions = self.brief_instructions.toPlainText().strip()
@@ -546,7 +554,12 @@ class AITab(QWidget):
         self.send_button.setEnabled(False)
         self.input_line.setEnabled(False)
         self.progress_bar.setVisible(True)
-        self.worker = GroqWorker(self.groq_client, messages)
+        self.worker = AIWorker(
+            self.ai_client, messages,
+            temperature=float(getattr(self.config, "omniroute_temperature", 0.8)),
+            max_tokens=int(getattr(self.config, "omniroute_max_tokens", 1100)),
+            top_p=float(getattr(self.config, "omniroute_top_p", 0.9)),
+        )
         self.worker.finished.connect(self.on_ai_response)
         self.worker.error.connect(self.on_ai_error)
         self.worker.start()
@@ -769,7 +782,7 @@ class AITab(QWidget):
         return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
 
     def _load_prompt_template(self):
-        template_path = getattr(self.config, "groq_prompt_template", "")
+        template_path = getattr(self.config, "omniroute_prompt_template", "ai_integration/prompt_presets/viral_post_template.json")
         if not template_path:
             return {}
         path = Path(template_path)
