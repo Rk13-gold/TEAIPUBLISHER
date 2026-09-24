@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtCore import Qt, QThread, Signal, QDateTime
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QFont, QIcon, QTextCursor
 import requests
 import json
 import os
@@ -91,6 +91,22 @@ except ImportError:
             "ultra": {"bitrate": "320k", "name": "Ultra (320k)"}
         }
 
+def _clamp_html_caption(caption, limit=1024):
+    """Truncate an HTML caption to `limit` chars without cutting tags in half."""
+    if len(caption) <= limit:
+        return caption
+    head = caption[:limit - 3]
+    pairs = re.findall(r'<(/?)(b|i|u|code|pre|em|strong)>', head)
+    stack = []
+    for closing, tag in pairs:
+        if closing:
+            if stack and stack[-1] == tag:
+                stack.pop()
+        else:
+            stack.append(tag)
+    close_tags = ''.join(f'</{t}>' for t in stack)
+    return head + close_tags + '...'
+
 # Professional publishing worker for ordered Telegram posts
 class PublishWorker(QThread):
     """Professional worker for step-by-step Telegram publishing"""
@@ -101,6 +117,7 @@ class PublishWorker(QThread):
         super().__init__()
         self.post_data = post_data
         self.config = config
+        self._last_error = ""
         
     def run(self):
         """Execute professional publishing sequence"""
@@ -146,15 +163,23 @@ class PublishWorker(QThread):
                 self.progress.emit("📸 Enviando contenido principal con media...")
                 success = self.send_presentation_with_content(token, chat_id)
                 if not success:
-                    self.finished.emit(False, "Error al enviar contenido principal con media")
+                    self.finished.emit(False, f"Error al enviar contenido principal con media: {self._last_error}")
                     return
                 main_content_sent = True
                 time.sleep(1.5)
+                # If the content did not fit in the media caption, send the full text separately
+                if getattr(self, '_caption_truncated', False):
+                    self.progress.emit("📝 El texto no cabía en la foto; enviando texto completo...")
+                    success = self.send_main_message(token, chat_id)
+                    if not success:
+                        self.finished.emit(False, f"Error al enviar el texto completo: {self._last_error}")
+                        return
+                    time.sleep(1.5)
             elif self.post_data.get('presentation_path'):
                 self.progress.emit("📸 Enviando media sin texto...")
                 success = self.send_presentation(token, chat_id)
                 if not success:
-                    self.finished.emit(False, "Error al enviar media sin texto")
+                    self.finished.emit(False, f"Error al enviar media sin texto: {self._last_error}")
                     return
                 main_content_sent = True
                 time.sleep(1.5)
@@ -162,7 +187,7 @@ class PublishWorker(QThread):
                 self.progress.emit("📝 Enviando mensaje de texto...")
                 success = self.send_main_message(token, chat_id)
                 if not success:
-                    self.finished.emit(False, "Error al enviar mensaje de texto")
+                    self.finished.emit(False, f"Error al enviar mensaje de texto: {self._last_error}")
                     return
                 main_content_sent = True
                 time.sleep(1.5)
@@ -173,7 +198,7 @@ class PublishWorker(QThread):
                 self.progress.emit("🎵 Enviando audio premium en máxima calidad...")
                 success = self.send_voice_note_max_quality(token, chat_id)
                 if not success:
-                    self.finished.emit(False, "Error al enviar nota de voz")
+                    self.finished.emit(False, f"Error al enviar nota de voz: {self._last_error}")
                     return
                 time.sleep(1.5)
             
@@ -182,7 +207,7 @@ class PublishWorker(QThread):
                 self.progress.emit("🎯 Enviando llamada a la acción...")
                 success = self.send_cta_hashtags_only(token, chat_id)
                 if not success:
-                    self.finished.emit(False, "Error al enviar CTA")
+                    self.finished.emit(False, f"Error al enviar CTA: {self._last_error}")
                     return
                 time.sleep(1.5)
             
@@ -191,7 +216,7 @@ class PublishWorker(QThread):
                 self.progress.emit("🔗 Enviando botones interactivos...")
                 success = self.send_buttons_only(token, chat_id)
                 if not success:
-                    self.finished.emit(False, "Error al enviar botones")
+                    self.finished.emit(False, f"Error al enviar botones: {self._last_error}")
                     return
             
             if not main_content_sent:
@@ -214,10 +239,12 @@ class PublishWorker(QThread):
             file_path = self.post_data['presentation_path']
             media_type = self.post_data['presentation_type']
             caption = self.post_data.get('main_content', '')
-            
-            # Limit caption to 1024 characters for media posts
-            if len(caption) > 1024:
-                caption = caption[:1020] + "..."
+            full_content = caption
+
+            # Limit caption to 1024 characters for media posts (HTML-safe)
+            caption = _clamp_html_caption(caption, 1024)
+            # If the full text did not fit in the caption, it will be sent as a separate message
+            self._caption_truncated = len(full_content) > 1024
             
             if media_type == "photo":
                 return self.send_photo(token, chat_id, file_path, caption)
@@ -236,10 +263,9 @@ class PublishWorker(QThread):
             file_path = self.post_data['presentation_path']
             media_type = self.post_data['presentation_type']
             caption = self.post_data.get('main_content', '')
-            
-            # Limit caption to 1024 characters for media posts
-            if len(caption) > 1024:
-                caption = caption[:1020] + "..."
+
+            # Limit caption to 1024 characters for media posts (HTML-safe)
+            caption = _clamp_html_caption(caption, 1024)
             
             if media_type == "photo":
                 return self.send_photo(token, chat_id, file_path, caption)
@@ -271,16 +297,19 @@ class PublishWorker(QThread):
                 self.progress.emit("✅ Mensaje principal enviado")
                 return True
             else:
-                error_desc = result.get('description', 'Error desconocido')
-                self.progress.emit(f"❌ Error API Telegram: {error_desc}")
+                self._last_error = result.get('description', 'Error desconocido')
+                self.progress.emit(f"❌ Error API Telegram: {self._last_error}")
                 return False
         except requests.exceptions.Timeout:
-            self.progress.emit("❌ Timeout: La petición tardó demasiado")
+            self._last_error = "Timeout: La petición tardó demasiado"
+            self.progress.emit(f"❌ {self._last_error}")
             return False
         except requests.exceptions.ConnectionError:
-            self.progress.emit("❌ Error de conexión con Telegram")
+            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+            self.progress.emit(f"❌ Error de conexión con Telegram: {self._last_error}")
             return False
         except Exception as e:
+            self._last_error = str(e)
             self.progress.emit(f"❌ Error inesperado en mensaje: {e}")
             return False
 
@@ -330,6 +359,14 @@ class PublishWorker(QThread):
             if not os.path.exists(ogg_path):
                 self.progress.emit("❌ Error: No se pudo preparar el archivo de audio")
                 return False
+
+            # Telegram hard limit: 50 MB per voice note
+            size_mb = os.path.getsize(ogg_path) / (1024 * 1024)
+            if size_mb > 50:
+                self._last_error = f"el audio pesa {size_mb:.1f} MB y supera el límite de Telegram (50 MB)"
+                self.progress.emit(f"❌ {self._last_error}")
+                return False
+            self.progress.emit(f"🎵 Audio listo: {size_mb:.1f} MB")
             
             # Create caption with consistent width formatting
             caption = ""
@@ -339,9 +376,8 @@ class PublishWorker(QThread):
                 caption += f"{voice_description}\n\n"
             caption += "💎 Contenido Premium Exclusivo - Máxima Calidad 🔒"
             
-            # Limit caption to 1024 characters for voice messages
-            if len(caption) > 1024:
-                caption = caption[:1020] + "..."
+            # Limit caption to 1024 characters for voice messages (HTML-safe)
+            caption = _clamp_html_caption(caption, 1024)
             
             self.progress.emit("📤 Enviando nota de voz premium a Telegram...")
             
@@ -363,9 +399,15 @@ class PublishWorker(QThread):
                 self.progress.emit("✅ Nota de voz premium enviada correctamente")
                 return True
             else:
-                self.progress.emit(f"❌ Error: {result.get('description', 'Error desconocido')}")
+                self._last_error = result.get('description', 'Error desconocido')
+                self.progress.emit(f"❌ Telegram rechazó la nota de voz: {self._last_error}")
                 return False
+        except requests.exceptions.ConnectionError:
+            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+            self.progress.emit(f"❌ Error de conexión al enviar nota de voz: {self._last_error}")
+            return False
         except Exception as e:
+            self._last_error = str(e)
             self.progress.emit(f"❌ Error en nota de voz: {e}")
             return False
 
@@ -389,16 +431,19 @@ class PublishWorker(QThread):
                 self.progress.emit("✅ CTA y hashtags enviados")
                 return True
             else:
-                error_desc = result.get('description', 'Error desconocido')
-                self.progress.emit(f"❌ Error API Telegram: {error_desc}")
+                self._last_error = result.get('description', 'Error desconocido')
+                self.progress.emit(f"❌ Error API Telegram en CTA: {self._last_error}")
                 return False
         except requests.exceptions.Timeout:
-            self.progress.emit("❌ Timeout: La petición de CTA tardó demasiado")
+            self._last_error = "Timeout: La petición de CTA tardó demasiado"
+            self.progress.emit(f"❌ {self._last_error}")
             return False
         except requests.exceptions.ConnectionError:
-            self.progress.emit("❌ Error de conexión con Telegram en CTA")
+            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+            self.progress.emit(f"❌ Error de conexión con Telegram en CTA: {self._last_error}")
             return False
         except Exception as e:
+            self._last_error = str(e)
             self.progress.emit(f"❌ Error inesperado en CTA: {e}")
             return False
 
@@ -433,53 +478,93 @@ class PublishWorker(QThread):
                 self.progress.emit("✅ Botones interactivos enviados")
                 return True
             else:
-                error_desc = result.get('description', 'Error desconocido')
-                self.progress.emit(f"❌ Error API Telegram: {error_desc}")
+                self._last_error = result.get('description', 'Error desconocido')
+                self.progress.emit(f"❌ Error API Telegram en botones: {self._last_error}")
                 return False
         except requests.exceptions.Timeout:
-            self.progress.emit("❌ Timeout: La petición de botones tardó demasiado")
+            self._last_error = "Timeout: La petición de botones tardó demasiado"
+            self.progress.emit(f"❌ {self._last_error}")
             return False
         except requests.exceptions.ConnectionError:
-            self.progress.emit("❌ Error de conexión con Telegram en botones")
+            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+            self.progress.emit(f"❌ Error de conexión con Telegram en botones: {self._last_error}")
             return False
         except Exception as e:
+            self._last_error = str(e)
             self.progress.emit(f"❌ Error inesperado en botones: {e}")
             return False
 
     def send_photo(self, token, chat_id, file_path, caption):
-        """Send photo"""
+        """Send photo with real error reporting"""
         try:
             with open(file_path, "rb") as photo:
                 url = f"https://api.telegram.org/bot{token}/sendPhoto"
                 files = {"photo": photo}
                 data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-                response = requests.post(url, data=data, files=files)
-            return response.json().get("ok", False)
-        except:
+                response = requests.post(url, data=data, files=files, timeout=60)
+            result = response.json()
+            if result.get("ok"):
+                return True
+            self._last_error = result.get('description', 'Error desconocido')
+            self.progress.emit(f"❌ Telegram rechazó la imagen: {self._last_error}")
+            return False
+        except requests.exceptions.ConnectionError:
+            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+            self.progress.emit(f"❌ Error de conexión al enviar imagen: {self._last_error}")
+            return False
+        except requests.exceptions.Timeout:
+            self._last_error = "timeout al enviar imagen (más de 60s)"
+            self.progress.emit(f"❌ {self._last_error}")
+            return False
+        except Exception as e:
+            self._last_error = str(e)
+            self.progress.emit(f"❌ Error inesperado al enviar imagen: {e}")
             return False
 
     def send_video(self, token, chat_id, file_path, caption):
-        """Send video"""
+        """Send video with real error reporting"""
         try:
             with open(file_path, "rb") as video:
                 url = f"https://api.telegram.org/bot{token}/sendVideo"
                 files = {"video": video}
                 data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-                response = requests.post(url, data=data, files=files)
-            return response.json().get("ok", False)
-        except:
+                response = requests.post(url, data=data, files=files, timeout=120)
+            result = response.json()
+            if result.get("ok"):
+                return True
+            self._last_error = result.get('description', 'Error desconocido')
+            self.progress.emit(f"❌ Telegram rechazó el video: {self._last_error}")
+            return False
+        except requests.exceptions.ConnectionError:
+            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+            self.progress.emit(f"❌ Error de conexión al enviar video: {self._last_error}")
+            return False
+        except Exception as e:
+            self._last_error = str(e)
+            self.progress.emit(f"❌ Error inesperado al enviar video: {e}")
             return False
 
     def send_animation(self, token, chat_id, file_path, caption):
-        """Send GIF/animation"""
+        """Send GIF/animation with real error reporting"""
         try:
             with open(file_path, "rb") as animation:
                 url = f"https://api.telegram.org/bot{token}/sendAnimation"
                 files = {"animation": animation}
                 data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-                response = requests.post(url, data=data, files=files)
-            return response.json().get("ok", False)
-        except:
+                response = requests.post(url, data=data, files=files, timeout=120)
+            result = response.json()
+            if result.get("ok"):
+                return True
+            self._last_error = result.get('description', 'Error desconocido')
+            self.progress.emit(f"❌ Telegram rechazó la animación: {self._last_error}")
+            return False
+        except requests.exceptions.ConnectionError:
+            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+            self.progress.emit(f"❌ Error de conexión al enviar animación: {self._last_error}")
+            return False
+        except Exception as e:
+            self._last_error = str(e)
+            self.progress.emit(f"❌ Error inesperado al enviar animación: {e}")
             return False
 
 class PublishTab(QWidget):
@@ -613,6 +698,39 @@ class PublishTab(QWidget):
         voice_layout.addWidget(self.lbl_voice_info)
         # Backwards compatibility alias used elsewhere
         self.voice_file_label = self.lbl_voice_info
+        
+        # Voice title with emoji button
+        title_row = QHBoxLayout()
+        title_row.addWidget(QLabel("Título:"))
+        self.voice_title_edit = EmojiLineEdit() if EmojiLineEdit else QLineEdit()
+        self.voice_title_edit.setPlaceholderText("Título del audio (opcional)")
+        title_row.addWidget(self.voice_title_edit)
+        
+        self.voice_emoji_btn = QPushButton()
+        self.voice_emoji_btn.setFixedSize(30, 30)
+        _pix = render_emoji("😊", 18)
+        if _pix and not _pix.isNull():
+            self.voice_emoji_btn.setIcon(QIcon(_pix))
+            self.voice_emoji_btn.setIconSize(_pix.size())
+        else:
+            self.voice_emoji_btn.setText(":)")
+        self.voice_emoji_btn.setToolTip("Agregar emoji al título del audio")
+        self.voice_emoji_btn.clicked.connect(self.insert_emoji_voice_title)
+        self.voice_emoji_btn.setStyleSheet(
+            theme.emoji_button_qss() if theme else """
+            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
+            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
+            QPushButton:pressed { background: #3a3d6b; }
+            """
+        )
+        title_row.addWidget(self.voice_emoji_btn)
+        voice_layout.addLayout(title_row)
+        
+        voice_layout.addWidget(QLabel("Descripción:"))
+        self.voice_description_edit = QTextEdit()
+        self.voice_description_edit.setPlaceholderText("Descripción del audio (opcional)")
+        self.voice_description_edit.setMaximumHeight(50)
+        voice_layout.addWidget(self.voice_description_edit)
         
         # Add voice group to parent layout
         parent_layout.addWidget(voice_group)
@@ -856,116 +974,6 @@ class PublishTab(QWidget):
         preview_group.setMaximumWidth(340)
         preview_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         parent_layout.addWidget(preview_group, 0)  # Sin expansión
-
-    def setup_voice_note_section(self, layout):
-        """Setup professional voice note section"""
-        voice_group = QGroupBox("🎵 Nota de Voz Premium (Opcional)")
-        voice_group.setMinimumHeight(180)
-        voice_group.setMaximumHeight(200)
-        voice_layout = QVBoxLayout()
-        
-        # Voice file selection
-        voice_file_layout = QHBoxLayout()
-        self.voice_select_btn = QPushButton("🎤 Seleccionar Audio")
-        self.voice_select_btn.clicked.connect(self.select_voice_file)
-        voice_file_layout.addWidget(self.voice_select_btn)
-        
-        self.voice_file_label = QLabel("Ningún archivo seleccionado")
-        self.voice_file_label.setStyleSheet("color: gray; font-style: italic;")
-        voice_file_layout.addWidget(self.voice_file_label)
-        voice_layout.addLayout(voice_file_layout)
-        
-        # Voice metadata with emoji button
-        metadata_layout = QVBoxLayout()
-        
-        # Title row with emoji button
-        title_row = QHBoxLayout()
-        title_row.addWidget(QLabel("Título:"))
-        self.voice_title_edit = EmojiLineEdit() if EmojiLineEdit else QLineEdit()
-        self.voice_title_edit.setPlaceholderText("Título del audio (opcional)")
-        title_row.addWidget(self.voice_title_edit)
-        
-        # Emoji button for voice title
-        self.voice_emoji_btn = QPushButton()
-        self.voice_emoji_btn.setFixedSize(32, 32)
-        _pix = render_emoji("😊", 20)
-        if _pix and not _pix.isNull():
-            self.voice_emoji_btn.setIcon(QIcon(_pix))
-            self.voice_emoji_btn.setIconSize(_pix.size())
-        else:
-            self.voice_emoji_btn.setText(":)")
-        self.voice_emoji_btn.setToolTip("Agregar emoji al título del audio")
-        self.voice_emoji_btn.clicked.connect(self.insert_emoji_voice_title)
-        self.voice_emoji_btn.setStyleSheet(
-            theme.emoji_button_qss() if theme else """
-            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
-            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
-            QPushButton:pressed { background: #3a3d6b; }
-            """
-        )
-        title_row.addWidget(self.voice_emoji_btn)
-        metadata_layout.addLayout(title_row)
-        
-        # Description
-        metadata_layout.addWidget(QLabel("Descripción:"))
-        self.voice_description_edit = QTextEdit()
-        self.voice_description_edit.setPlaceholderText("Descripción del audio (opcional)")
-        self.voice_description_edit.setMaximumHeight(50)
-        metadata_layout.addWidget(self.voice_description_edit)
-        
-        voice_layout.addLayout(metadata_layout)
-        
-        voice_group.setLayout(voice_layout)
-        layout.addWidget(voice_group)
-
-    def setup_cta_hashtags_section(self, layout):
-        """Setup CTA and hashtags section"""
-        engagement_group = QGroupBox("🎯 Engagement y Hashtags")
-        engagement_group.setMinimumHeight(120)
-        engagement_group.setMaximumHeight(140)
-        engagement_layout = QVBoxLayout()
-        
-        # CTA section
-        cta_layout = QHBoxLayout()
-        cta_layout.addWidget(QLabel("💬 CTA:"))
-        self.cta_edit = EmojiLineEdit() if EmojiLineEdit else QLineEdit()
-        self.cta_edit.setPlaceholderText("¡Comparte si te gustó! 👍")
-        self.cta_edit.textChanged.connect(self.update_preview)
-        self.cta_edit.textChanged.connect(self.update_post_statistics)
-        cta_layout.addWidget(self.cta_edit)
-        
-        self.cta_emoji_btn = QPushButton()
-        self.cta_emoji_btn.setFixedSize(32, 32)
-        _pix = render_emoji("😊", 20)
-        if _pix and not _pix.isNull():
-            self.cta_emoji_btn.setIcon(QIcon(_pix))
-            self.cta_emoji_btn.setIconSize(_pix.size())
-        else:
-            self.cta_emoji_btn.setText(":)")
-        self.cta_emoji_btn.clicked.connect(self.insert_emoji_cta)
-        self.cta_emoji_btn.setStyleSheet(
-            theme.emoji_button_qss() if theme else """
-            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
-            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
-            QPushButton:pressed { background: #3a3d6b; }
-            """
-        )
-        cta_layout.addWidget(self.cta_emoji_btn)
-        engagement_layout.addLayout(cta_layout)
-        
-        # Hashtags section
-        hashtags_layout = QHBoxLayout()
-        hashtags_layout.addWidget(QLabel("🏷️ Tags:"))
-        self.hashtags_edit = QLineEdit()
-        self.hashtags_edit.setPlaceholderText("#viral #trending #content")
-        self.hashtags_edit.textChanged.connect(self.update_preview)
-        self.hashtags_edit.textChanged.connect(self.update_post_statistics)
-        hashtags_layout.addWidget(self.hashtags_edit)
-
-        engagement_layout.addLayout(hashtags_layout)
-        
-        engagement_group.setLayout(engagement_layout)
-        layout.addWidget(engagement_group)
 
     def setup_publishing_status_section(self, layout):
         """Setup comprehensive publishing status and parameters section"""
@@ -1339,7 +1347,7 @@ class PublishTab(QWidget):
 
         self.title_edit.setText(title)
         self.edit_area.setHtml(main_content if main_content else '')
-        self.edit_area.moveCursor(self.edit_area.textCursor().End)
+        self.edit_area.moveCursor(QTextCursor.MoveOperation.End)
 
         # Presentation media
         path = post_data.get('presentation_path')
@@ -1453,22 +1461,6 @@ class PublishTab(QWidget):
             self.status_label.setText("❌ Error en publicación")
             self.status_label.setStyleSheet("color: red; font-weight: bold;")
             QMessageBox.critical(self, "Error", message)
-
-
-
-    def insert_emoji_voice_title(self):
-        """Insert emoji into voice title field"""
-        if EmojiPicker:
-            picker = EmojiPicker(self)
-            if picker.exec():
-                emoji = picker.selected_emoji
-                if emoji:
-                    cursor = self.voice_title_edit.cursorPosition()
-                    text = self.voice_title_edit.text()
-                    self.voice_title_edit.setText(text[:cursor] + emoji + text[cursor:])
-                    self.voice_title_edit.setCursorPosition(cursor + len(emoji))
-        else:
-            QMessageBox.information(self, "Info", "Función de emoji no disponible")
 
     def format_telegram_post(self, text):
         """Format text for Telegram preview (same logic as AI Generator)"""
