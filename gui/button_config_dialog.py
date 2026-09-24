@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QFont, QIcon
 from gui.emoji_picker import EmojiPicker
 from gui.emoji_renderer import render_emoji
+from gui import theme
 
 class ButtonConfigDialog(QDialog):
     def __init__(self, parent=None, buttons=None):
@@ -43,11 +44,7 @@ class ButtonConfigDialog(QDialog):
             self.emoji_btn.setText(":)")
         self.emoji_btn.setToolTip("Insertar emoji en el campo de texto activo")
         self.emoji_btn.clicked.connect(self.insert_emoji_to_active)
-        self.emoji_btn.setStyleSheet("""
-            QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
-            QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
-            QPushButton:pressed { background: #3a3d6b; }
-        """)
+        self.emoji_btn.setStyleSheet(theme.emoji_button_qss())
         row_btn_layout.addWidget(self.emoji_btn, 0, Qt.AlignLeft)
 
         row_btn_layout.addStretch(1)

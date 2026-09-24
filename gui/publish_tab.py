@@ -62,6 +62,11 @@ except ImportError:
     EmojiLineEdit = None
 
 try:
+    from gui import theme
+except ImportError:
+    theme = None
+
+try:
     from gui.button_config_dialog import ButtonConfigDialog
 except ImportError:
     ButtonConfigDialog = None
@@ -606,6 +611,8 @@ class PublishTab(QWidget):
         self.lbl_voice_info.setWordWrap(True)
         self.lbl_voice_info.setStyleSheet("color: #888; font-style: italic; font-size: 9px;")
         voice_layout.addWidget(self.lbl_voice_info)
+        # Backwards compatibility alias used elsewhere
+        self.voice_file_label = self.lbl_voice_info
         
         # Add voice group to parent layout
         parent_layout.addWidget(voice_group)
@@ -631,11 +638,13 @@ class PublishTab(QWidget):
             self.cta_emoji_btn.setText(":)")
         self.cta_emoji_btn.setToolTip("Insertar emoji en el CTA")
         self.cta_emoji_btn.clicked.connect(self.insert_emoji_cta)
-        self.cta_emoji_btn.setStyleSheet("""
+        self.cta_emoji_btn.setStyleSheet(
+            theme.emoji_button_qss() if theme else """
             QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
             QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
             QPushButton:pressed { background: #3a3d6b; }
-        """)
+            """
+        )
         cta_row.addWidget(self.cta_emoji_btn)
         cta_layout.addWidget(QLabel("Texto del CTA:"))
         cta_layout.addLayout(cta_row)
@@ -657,11 +666,13 @@ class PublishTab(QWidget):
             self.hashtags_emoji_btn.setText(":)")
         self.hashtags_emoji_btn.setToolTip("Insertar emoji en los hashtags")
         self.hashtags_emoji_btn.clicked.connect(self.insert_emoji_hashtags)
-        self.hashtags_emoji_btn.setStyleSheet("""
+        self.hashtags_emoji_btn.setStyleSheet(
+            theme.emoji_button_qss() if theme else """
             QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
             QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
             QPushButton:pressed { background: #3a3d6b; }
-        """)
+            """
+        )
         hash_row.addWidget(self.hashtags_emoji_btn)
         cta_layout.addWidget(QLabel("Hashtags:"))
         cta_layout.addLayout(hash_row)
@@ -732,11 +743,13 @@ class PublishTab(QWidget):
             self.title_emoji_btn.setText(":)")
         self.title_emoji_btn.setToolTip("Insertar emoji en el título")
         self.title_emoji_btn.clicked.connect(self.insert_emoji_title)
-        self.title_emoji_btn.setStyleSheet("""
+        self.title_emoji_btn.setStyleSheet(
+            theme.emoji_button_qss() if theme else """
             QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
             QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
             QPushButton:pressed { background: #3a3d6b; }
-        """)
+            """
+        )
         title_img_layout.addWidget(self.title_emoji_btn)
 
         # Image selection button
@@ -777,12 +790,22 @@ class PublishTab(QWidget):
             self.emoji_btn.setText(":)")
         self.emoji_btn.setToolTip("Insertar emoji")
         self.emoji_btn.clicked.connect(self.insert_emoji_content)
-        self.emoji_btn.setStyleSheet("""
+        self.emoji_btn.setStyleSheet(
+            theme.emoji_button_qss() if theme else """
             QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
             QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
             QPushButton:pressed { background: #3a3d6b; }
-        """)
+            """
+        )
         buttons_layout.addWidget(self.emoji_btn)
+        
+        # Contador de caracteres en vivo
+        self.editor_stats_label = QLabel("0 caracteres · 0 palabras")
+        if theme:
+            self.editor_stats_label.setStyleSheet(
+                f"color: {theme.TEXT_SECONDARY}; font-size: {theme.FONT['sm']}px; padding: 0 6px;"
+            )
+        buttons_layout.addWidget(self.editor_stats_label)
         
         buttons_layout.addStretch()
         editor_layout.addLayout(buttons_layout)
@@ -873,11 +896,13 @@ class PublishTab(QWidget):
             self.voice_emoji_btn.setText(":)")
         self.voice_emoji_btn.setToolTip("Agregar emoji al título del audio")
         self.voice_emoji_btn.clicked.connect(self.insert_emoji_voice_title)
-        self.voice_emoji_btn.setStyleSheet("""
+        self.voice_emoji_btn.setStyleSheet(
+            theme.emoji_button_qss() if theme else """
             QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
             QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
             QPushButton:pressed { background: #3a3d6b; }
-        """)
+            """
+        )
         title_row.addWidget(self.voice_emoji_btn)
         metadata_layout.addLayout(title_row)
         
@@ -918,11 +943,13 @@ class PublishTab(QWidget):
         else:
             self.cta_emoji_btn.setText(":)")
         self.cta_emoji_btn.clicked.connect(self.insert_emoji_cta)
-        self.cta_emoji_btn.setStyleSheet("""
+        self.cta_emoji_btn.setStyleSheet(
+            theme.emoji_button_qss() if theme else """
             QPushButton { background: transparent; border: 1px solid #333; border-radius: 6px; padding: 2px; }
             QPushButton:hover { background: #2d2f52; border: 1px solid #7c5cfc; }
             QPushButton:pressed { background: #3a3d6b; }
-        """)
+            """
+        )
         cta_layout.addWidget(self.cta_emoji_btn)
         engagement_layout.addLayout(cta_layout)
         
@@ -1523,6 +1550,15 @@ class PublishTab(QWidget):
             self.current_chars_label.setStyleSheet("color: green;")
         
         self.current_words_label.setText(str(word_count))
+
+        # Contador en vivo del editor
+        if getattr(self, 'editor_stats_label', None) is not None:
+            self.editor_stats_label.setText(f"{char_count} caracteres · {word_count} palabras")
+            if theme:
+                color = theme.DANGER if char_count > 4096 else (theme.WARNING if char_count > 3500 else theme.TEXT_SECONDARY)
+                self.editor_stats_label.setStyleSheet(
+                    f"color: {color}; font-size: {theme.FONT['sm']}px; padding: 0 6px;"
+                )
         
         # Actualizar info de media
         if self.presentation_media_path:
