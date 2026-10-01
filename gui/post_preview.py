@@ -5,12 +5,16 @@ from PySide6.QtGui import QPixmap, QTextCursor, QTextImageFormat, QImage, QTextD
 from PySide6.QtCore import Qt, QUrl
 
 from gui.emoji_renderer import render_emoji
+from utils.telegram_format import escape_html
 
-# Regex to match emoji characters (most Unicode emoji ranges)
+# Regex to match emoji characters (most Unicode emoji ranges).
+# U+2000-U+206F is deliberately excluded: it is General Punctuation (bullet,
+# en/em dash, dagger, percent sign...), not emoji. Rendering those as images
+# replaces them with U+FFFC and mangles ordinary text.
 _EMOJI_RE = re.compile(
     '[\U0001F000-\U0001FFFF\U00002700-\U000027BF\U00002600-\U000026FF'
     '\U00002B00-\U00002BFF\U00002300-\U000023FF\U0000FE00-\U0000FE0F'
-    '\U00002000-\U0000206F\U00002100-\U0000214F\u00A9\u00AE\u203C\u2049'
+    '\U00002100-\U0000214F\u00A9\u00AE\u203C\u2049'
     '\u2122\u2139\u2194-\u2199\u21A9\u21AA\u231A\u231B\u2328\u23CF'
     '\u23E9-\u23F3\u23F8-\u23FA\u24C2\u25AA\u25AB\u25B6\u25C0\u25FB-\u25FE'
     '\u2600-\u27BF\u2934\u2935\u2B05\u2B06\u2B07\u2B1B\u2B1C\u2B50'
@@ -38,6 +42,16 @@ class PostPreviewWidget(QWidget):
                 border: none;
                 font-size: 15px;
                 padding: 8px 12px 8px 12px;
+            }
+            QFrame#SecondaryDivider {
+                background: #444;
+                border: none;
+            }
+            QLabel#SecondaryLabel {
+                background: #23272b;
+                color: #8a9099;
+                font-size: 10px;
+                padding: 2px 12px 0px 12px;
             }
             QFrame#ButtonBox {
                 background: #23272b;
@@ -97,6 +111,26 @@ class PostPreviewWidget(QWidget):
         self.text_preview.setLineWrapMode(QTextEdit.WidgetWidth)
         scroll_layout.addWidget(self.text_preview)
 
+        # Separador + segundo mensaje (CTA y hashtags), que Telegram envía
+        # como un mensaje aparte. Se oculta cuando no hay nada que enviar.
+        self.secondary_divider = QFrame()
+        self.secondary_divider.setObjectName("SecondaryDivider")
+        self.secondary_divider.setFrameShape(QFrame.HLine)
+        self.secondary_divider.setFixedHeight(1)
+        scroll_layout.addWidget(self.secondary_divider)
+
+        self.secondary_label = QLabel()
+        self.secondary_label.setObjectName("SecondaryLabel")
+        self.secondary_label.setAlignment(Qt.AlignCenter)
+        self.secondary_label.setWordWrap(True)
+        scroll_layout.addWidget(self.secondary_label)
+
+        self.text_secondary = QTextEdit()
+        self.text_secondary.setObjectName("TextPreview")
+        self.text_secondary.setReadOnly(True)
+        self.text_secondary.setLineWrapMode(QTextEdit.WidgetWidth)
+        scroll_layout.addWidget(self.text_secondary)
+
         # Caja de botones
         self.button_box = QFrame()
         self.button_box.setObjectName("ButtonBox")
@@ -111,6 +145,7 @@ class PostPreviewWidget(QWidget):
 
         self.set_image(None)
         self.set_text("")
+        self.set_secondary_html("")
         self.set_buttons([], "row")
 
     def set_image(self, image_path):
@@ -154,33 +189,75 @@ class PostPreviewWidget(QWidget):
         if pos < len(text):
             cursor.insertText(text[pos:])
 
+    def set_telegram_html(self, telegram_html):
+        """Render the canonical Telegram HTML exactly as Telegram will show it.
+
+        ``telegram_html`` is the very string that gets sent with
+        ``parse_mode=HTML``: line breaks are ``\\n`` and every special character
+        is already escaped, so the preview cannot drift from the published
+        message.
+        """
+        self._set_emoji_html(self.text_preview, telegram_html)
+
+    def set_secondary_html(self, telegram_html):
+        """Render the CTA/hashtags block, which Telegram sends as its own message."""
+        has_text = bool((telegram_html or '').strip())
+        self.secondary_divider.setVisible(has_text)
+        self.secondary_label.setVisible(has_text)
+        self.text_secondary.setVisible(has_text)
+        if not has_text:
+            self.text_secondary.clear()
+            return
+        self.secondary_label.setText('Mensaje separado: CTA y hashtags')
+        self._set_emoji_html(self.text_secondary, telegram_html)
+
+    def _set_emoji_html(self, target, telegram_html):
+        try:
+            from utils.telegram_format import html_to_preview_html
+            html = html_to_preview_html(telegram_html or '')
+        except ImportError:
+            html = (telegram_html or '').replace('\n', '<br/>')
+        self._set_html(target, html)
+
     def set_html(self, html):
-        # Replace emoji characters in HTML with <img> placeholders
+        self._set_html(self.text_preview, html)
+
+    def _set_html(self, target, html):
+        # Replace emoji characters in HTML with <img> placeholders. Only the
+        # emojis we can actually render become images; the rest stay as text so
+        # they never degrade into U+FFFC object-replacement characters.
         emoji_size = 13
+        renderable = {}
+        for idx, m in enumerate(_EMOJI_RE.finditer(html)):
+            pix = render_emoji(m.group(), emoji_size)
+            renderable[idx] = (
+                pix.scaled(emoji_size, emoji_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                if pix and not pix.isNull() else None
+            )
+
         parts = []
         idx = 0
         pos = 0
         for m in _EMOJI_RE.finditer(html):
             if m.start() > pos:
                 parts.append(html[pos:m.start()])
-            parts.append(f'<img src="emoji_{idx}" width="{emoji_size}" height="{emoji_size}">')
+            if renderable.get(idx) is not None:
+                parts.append(f'<img src="emoji_{idx}" width="{emoji_size}" height="{emoji_size}">')
+            else:
+                parts.append(escape_html(m.group()))
             pos = m.end()
             idx += 1
         if pos < len(html):
             parts.append(html[pos:])
         modified_html = ''.join(parts)
-        doc = self.text_preview.document()
+
+        doc = target.document()
+        doc.clear()
         doc.setHtml(modified_html)
         # Add image resources for each placeholder
-        idx = 0
-        for m in _EMOJI_RE.finditer(html):
-            emoji = m.group()
-            pix = render_emoji(emoji, emoji_size)
-            if pix and not pix.isNull():
-                pix = pix.scaled(emoji_size, emoji_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                img = pix.toImage()
-                doc.addResource(QTextDocument.ImageResource, QUrl(f'emoji_{idx}'), img)
-            idx += 1
+        for idx, pix in renderable.items():
+            if pix is not None:
+                doc.addResource(QTextDocument.ImageResource, QUrl(f'emoji_{idx}'), pix.toImage())
 
     def set_buttons(self, buttons, layout_type="row"):
         # Limpia botones previos

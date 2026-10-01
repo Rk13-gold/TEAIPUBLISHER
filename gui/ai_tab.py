@@ -7,8 +7,6 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QIntValidator, QFont, QIcon
 from pathlib import Path
-from html import escape
-from html.parser import HTMLParser
 import requests
 import json
 import re
@@ -20,7 +18,11 @@ from gui.emoji_picker import EmojiPicker
 from gui.emoji_renderer import render_emoji
 from gui.emoji_text_helper import insert_emoji_textedit, emoji_document_to_plaintext
 from gui.emoji_line_edit import EmojiLineEdit
-from utils.telegram_format import prepare_content_for_telegram, build_post_content
+from utils.telegram_format import (
+    prepare_content_for_telegram, build_post_content,
+    clamp_telegram_text, split_telegram_text,
+    TELEGRAM_CAPTION_LIMIT, TELEGRAM_TEXT_LIMIT,
+)
 from gui.button_config_dialog import ButtonConfigDialog
 from gui.web_search_dialog import WebSearchDialog
 from gui import theme
@@ -100,6 +102,9 @@ class AITab(QWidget):
         self.telegram_media_path = None
         self.telegram_media_type = None  # 'photo', 'video', 'animation'
         self.telegram_buttons = [[]]
+        self.voice_selected_file = None
+        self.voice_title = ""
+        self.voice_description = ""
         self.prompt_template = self._load_prompt_template()
         self.web_snippets = []
 
@@ -331,22 +336,32 @@ class AITab(QWidget):
             self.update_preview()
 
     # --- Actualizar previsualización ---
-    def update_preview(self):
+    def _build_current_post(self):
+        """Canonical Telegram HTML for the current draft.
+
+        The preview and the publish step both read this, so the preview always
+        matches what Telegram receives.
+        """
         title = self.title_edit.text().strip()
-        text = emoji_document_to_plaintext(self.edit_area.document())
-        preview_text = self.format_telegram_post(f"{title}\n\n{text}" if title else text)
-        preview_html = preview_text.replace("\n", "<br>")
-        # If there's a video attached, annotate the preview with a video marker
+        text = emoji_document_to_plaintext(self.edit_area.document()).strip()
+        return build_post_content(title, prepare_content_for_telegram(text))
+
+    def update_preview(self):
+        main_content = self._build_current_post()
+
+        # Media annotations are preview-only, so prepend them outside the
+        # canonical post body.
+        annotations = []
         if self.telegram_media_type == 'video' and self.telegram_media_path:
-            preview_text = f"🎞️ Video adjunto: {Path(self.telegram_media_path).name}\n\n" + preview_text
-            preview_html = preview_text.replace("\n", "<br>")
-
-        # If voice file exists, annotate preview too
+            annotations.append(f"🎞️ Video adjunto: {Path(self.telegram_media_path).name}")
         if getattr(self, 'voice_selected_file', None):
-            preview_text = f"🎵 Audio adjunto: {Path(self.voice_selected_file).name}\n\n" + preview_text
-            preview_html = preview_text.replace("\n", "<br>")
+            annotations.append(f"🎵 Audio adjunto: {Path(self.voice_selected_file).name}")
+        preview_html = main_content
+        if annotations:
+            prefix = prepare_content_for_telegram('\n'.join(annotations))
+            preview_html = f"{prefix}\n\n{main_content}" if main_content else prefix
 
-        self.post_preview.set_html(preview_html)
+        self.post_preview.set_telegram_html(preview_html)
         self.post_preview.set_image(self.telegram_image_path)
         keyboard = []
         if self.telegram_buttons and any(self.telegram_buttons):
@@ -365,47 +380,8 @@ class AITab(QWidget):
 
     # --- Formateo profesional para Telegram ---
     def format_telegram_post(self, text):
-        lines = text.splitlines()
-        formatted = []
-        for idx, line in enumerate(lines):
-            stripped = line.strip()
-            # Título: primera línea, o línea en mayúsculas, o que empieza con "Título:"
-            if idx == 0 or stripped.startswith("Título:") or (stripped.isupper() and len(stripped) > 3):
-                title = stripped.replace("Título:", "").strip()
-                if title:
-                    formatted.append(f"<b>{title}</b>")
-                continue
-            # Subtítulo: línea que empieza con "Subtítulo:"
-            if stripped.startswith("Subtítulo:"):
-                subtitle = stripped.replace("Subtítulo:", "").strip()
-                if subtitle:
-                    formatted.append(f"<b>{subtitle}</b>")
-                continue
-            # Listas: líneas que empiezan con "- " o "* "
-            if stripped.startswith("- ") or stripped.startswith("* "):
-                formatted.append(f"• {stripped[2:]}")
-                continue
-            # Enlaces: http/https
-            if "http://" in stripped or "https://" in stripped:
-                url_pattern = r'(https?://\S+)'
-                def repl(m):
-                    url = m.group(1)
-                    return f'<a href="{url}">{url}</a>'
-                line = re.sub(url_pattern, repl, stripped)
-                formatted.append(line)
-                continue
-            # Línea vacía
-            if not stripped:
-                formatted.append("")
-                continue
-            # Código: empieza con 4 espacios o ```
-            if stripped.startswith("```") or stripped.startswith("    "):
-                code = stripped.replace("```", "").strip()
-                formatted.append(f"<code>{code}</code>")
-                continue
-            # Por defecto, texto normal
-            formatted.append(stripped)
-        return "\n".join(formatted)
+        """Convert plain text into Telegram HTML via the shared pipeline."""
+        return prepare_content_for_telegram(text)
 
     # --- Métodos de configuración ---
     def open_ai_config(self):
@@ -421,11 +397,7 @@ class AITab(QWidget):
 
     def open_in_publish(self):
         """Send the current post draft to Publish tab, pre-filling the fields there."""
-        # Prepare post_data similar to publish_post
-        raw_content = emoji_document_to_plaintext(self.edit_area.document()).strip()
-        title = self.title_edit.text().strip()
-        body = prepare_content_for_telegram(raw_content)
-        content = build_post_content(title, body)
+        content = self._build_current_post()
 
         keyboard = []
         if self.telegram_buttons and any(self.telegram_buttons):
@@ -451,13 +423,6 @@ class AITab(QWidget):
                 'voice_title': getattr(self, 'voice_title', ''),
                 'voice_description': getattr(self, 'voice_description', '')
             })
-        # Add voice if present
-        if getattr(self, 'voice_selected_file', None):
-            post_data.update({
-                'voice_file': self.voice_selected_file,
-                'voice_title': getattr(self, 'voice_title', ''),
-                'voice_description': getattr(self, 'voice_description', '')
-            })
 
         # Attempt to find the top-level MainWindow and the Publish tab
         try:
@@ -471,6 +436,17 @@ class AITab(QWidget):
                 QMessageBox.warning(self, "No disponible", "Pestaña Publish no está disponible actualmente.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo abrir en Publish: {e}")
+
+    def _set_editor_html(self, telegram_html):
+        """Load canonical Telegram HTML into a QTextEdit as editable rich text.
+
+        Uses ``setHtml`` so formatting stays formatting (rather than being
+        pasted as literal tags), and ``\n`` becomes a real block break so the
+        editor and the preview agree on line structure.
+        """
+        from utils.telegram_format import html_to_preview_html
+        self.edit_area.setHtml(html_to_preview_html(telegram_html))
+        self.edit_area.moveCursor(self.edit_area.textCursor().MoveOperation.End)
 
     # --- Emoji picker para edición ---
     def insert_emoji(self):
@@ -490,6 +466,66 @@ class AITab(QWidget):
             {"role": "system", "content": system_message},
             {"role": "user", "content": content}
         ]
+
+    def _load_prompt_template(self):
+        """Load the JSON prompt preset. Returns {} when unavailable.
+
+        A missing preset must never break the tab, so every failure degrades to
+        an empty template and ``base_prompt`` is used instead.
+        """
+        template_path = (
+            getattr(self.config, "omniroute_prompt_template", "")
+            or getattr(self.config, "groq_prompt_template", "")
+        )
+        if not template_path:
+            return {}
+        path = Path(template_path)
+        if not path.is_absolute():
+            base_dir = getattr(self.config, "base_dir", Path(__file__).resolve().parents[1])
+            path = Path(base_dir) / template_path
+        try:
+            with open(path, "r", encoding="utf-8") as fp:
+                data = json.load(fp)
+            return data if isinstance(data, dict) else {}
+        except Exception as exc:
+            print(f"⚠️ No se pudo cargar el template de prompt ({path}): {exc}")
+            return {}
+
+    def _compose_system_message(self, template):
+        parts = [template.get("system_instruction", self.base_prompt)]
+        persona = template.get("persona", {})
+        if persona:
+            parts.append(
+                f"Actúa como {persona.get('nombre', 'un estratega')} con habilidades en "
+                f"{', '.join(persona.get('habilidades', []))}. Objetivo: {persona.get('objetivo', '')}."
+            )
+        defaults = template.get("defaults", {})
+        if defaults:
+            parts.append(
+                f"Tono: {defaults.get('tono', 'profesional')}. Audiencia: {defaults.get('audiencia', 'usuarios de Telegram')}"
+            )
+        if self.copy_options:
+            parts.append("Copys sugeridos: " + " | ".join(self.copy_options))
+        if self.emoji_count:
+            parts.append(f"Incluye aproximadamente {self.emoji_count} emojis.")
+        if self.base_prompt:
+            parts.append(self.base_prompt)
+        return "\n".join([p for p in parts if p])
+
+    def _compose_user_payload(self, template, topic, instructions, user_message):
+        framework = template.get("virality_framework", {})
+        output = template.get("output_format", {})
+        defaults = template.get("defaults", {})
+        return {
+            "tema": topic,
+            "instrucciones": instructions or user_message,
+            "mensaje_chat": user_message,
+            "contexto": {
+                "framework": framework,
+                "output_format": output,
+                "defaults": defaults,
+            }
+        }
 
     def send_message(self):
         if not getattr(self.config, "omniroute_api_key", ""):
@@ -589,8 +625,9 @@ class AITab(QWidget):
         if not self.last_ai_response:
             QMessageBox.warning(self, "Error", "No hay respuesta de IA para importar.")
             return
-        formatted = self.format_telegram_post(self.last_ai_response)
-        self.edit_area.setPlainText(formatted)
+        # Insert as rich text so bold/italic survive as formatting and line
+        # breaks stay real line breaks in the editor.
+        self._set_editor_html(prepare_content_for_telegram(self.last_ai_response))
 
     def open_web_search(self):
         dlg = WebSearchDialog(self)
@@ -608,15 +645,13 @@ class AITab(QWidget):
                 cur = emoji_document_to_plaintext(self.edit_area.document()).strip()
                 new = (cur + "\n\n" + selected) if cur else selected
                 self.edit_area.setPlainText(new)
+                self.update_preview()
             # Save web snippet in AI tab context so it's included in payload
             self.web_snippets.append({'text': selected})
 
     # --- Publicar en Telegram ---
     def publish_post(self):
-        raw_content = emoji_document_to_plaintext(self.edit_area.document()).strip()
-        title = self.title_edit.text().strip()
-        body = prepare_content_for_telegram(raw_content)
-        content = build_post_content(title, body)
+        content = self._build_current_post()
         if not content:
             QMessageBox.warning(self, "Error", "El contenido a publicar no puede estar vacío.")
             return
@@ -662,11 +697,17 @@ class AITab(QWidget):
         # Build unified post_data and use PublishWorker (from PublishTab) to perform publishing as in PublishTab
         post_data = {
             'main_content': content,
-            'presentation_path': getattr(self, 'telegram_media_path', None),
-            'presentation_type': getattr(self, 'telegram_media_type', None),
+            'presentation_path': self.telegram_media_path,
+            'presentation_type': self.telegram_media_type,
             'reply_markup': reply_markup,
             'cta_hashtags': None
         }
+        if self.voice_selected_file:
+            post_data.update({
+                'voice_file': self.voice_selected_file,
+                'voice_title': self.voice_title,
+                'voice_description': self.voice_description
+            })
 
         # Try using the PublishWorker so AI tab leverages the same flow
         try:
@@ -685,196 +726,31 @@ class AITab(QWidget):
             # If we couldn't use PublishWorker (e.g., import error), fallback to existing API request path
             print("⚠️ No se pudo iniciar PublishWorker desde AI tab:", e)
 
-        # Si hay imagen y el texto es <= 1024, usa sendPhoto, si no, primero manda la foto y luego el texto
-        if self.telegram_image_path:
-            if len(content) <= 1024:
-                try:
-                    files = {"photo": open(self.telegram_image_path, "rb")}
-                    photo_url = f"https://api.telegram.org/bot{token}/sendPhoto"
-                    payload = {
-                        "chat_id": chat_id,
-                        "caption": content,
-                        "parse_mode": "HTML"
-                    }
-                    if reply_markup:
-                        payload["reply_markup"] = reply_markup
-                    response = requests.post(photo_url, data=payload, files=files)
-                    result = response.json()
-                    if result.get("ok"):
-                        QMessageBox.information(self, "Éxito", "¡Post con imagen enviado a Telegram!")
-                    else:
-                        error_msg = result.get("description", "Error al publicar en Telegram.")
-                        if "chat not found" in (error_msg or "").lower():
-                            QMessageBox.critical(self, "Error", f"{error_msg}\n\nAsegúrate de que el bot fue añadido al canal como administrador y que el ID/username configurado es correcto.")
-                        else:
-                            QMessageBox.critical(self, "Error", error_msg)
-                    return
-                except Exception as e:
-                    QMessageBox.critical(self, "Error", f"Error al enviar imagen: {e}")
-                    return
-            else:
-                # Enviar imagen sin caption, luego el texto como mensaje normal
-                try:
-                    files = {"photo": open(self.telegram_image_path, "rb")}
-                    photo_url = f"https://api.telegram.org/bot{token}/sendPhoto"
-                    payload = {
-                        "chat_id": chat_id
-                    }
-                    response = requests.post(photo_url, data=payload, files=files)
-                    # Ahora enviar el texto como mensaje normal
-                    url = f"https://api.telegram.org/bot{token}/sendMessage"
-                    data = {
-                        "chat_id": chat_id,
-                        "text": content,
-                        "parse_mode": "HTML"
-                    }
-                    if reply_markup:
-                        data["reply_markup"] = reply_markup
-                    response = requests.post(url, data=data)
-                    result = response.json()
-                    if result.get("ok"):
-                        QMessageBox.information(self, "Éxito", "¡Imagen y texto enviados a Telegram!")
-                    else:
-                        error_msg = result.get("description", "Error al publicar en Telegram.")
-                        if "chat not found" in (error_msg or "").lower():
-                            QMessageBox.critical(self, "Error", f"{error_msg}\n\nAsegúrate de que el bot fue añadido al canal como administrador y que el ID/username configurado es correcto.")
-                        else:
-                            QMessageBox.critical(self, "Error", error_msg)
-                    return
-                except Exception as e:
-                    QMessageBox.critical(self, "Error", f"Error al enviar imagen y texto: {e}")
-                    return
-
-        # Si no hay imagen, enviar solo el texto
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        data = {
-            "chat_id": chat_id,
-            "text": content,
-            "parse_mode": "HTML"
-        }
-        if reply_markup:
-            data["reply_markup"] = reply_markup
-        try:
-            response = requests.post(url, data=data)
-            result = response.json()
-            if result.get("ok"):
-                QMessageBox.information(self, "Éxito", "¡Post enviado a Telegram!")
-            else:
+        # Fallback direct API path (used only if PublishWorker is unavailable).
+        for chunk in split_telegram_text(content, TELEGRAM_TEXT_LIMIT):
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            data = {"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"}
+            if reply_markup:
+                data["reply_markup"] = reply_markup
+            try:
+                response = requests.post(url, data=data, timeout=30)
+                result = response.json()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error al publicar en Telegram: {e}")
+                return
+            if not result.get("ok"):
                 error_msg = result.get("description", "Error al publicar en Telegram.")
                 if "chat not found" in (error_msg or "").lower():
                     QMessageBox.critical(self, "Error", f"{error_msg}\n\nAsegúrate de que el bot fue añadido al canal como administrador y que el ID/username configurado es correcto.")
                 else:
                     QMessageBox.critical(self, "Error", error_msg)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error al enviar el post: {e}")
+                return
+        QMessageBox.information(self, "Éxito", "¡Post enviado a Telegram!")
 
     # --- Prompt helpers ---
     def _prepare_content_for_telegram(self, content: str) -> str:
-        """Normaliza saltos de línea y permite solo etiquetas HTML válidas para Telegram."""
-        normalized = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", content)
-        normalized = re.sub(r"<br\s*/?>", "\n", normalized, flags=re.IGNORECASE)
-        sanitizer = _TelegramHTMLSanitizer()
-        sanitizer.feed(normalized)
-        sanitizer.close()
-        return sanitizer.get_data().strip()
+        """Normalize line breaks and keep only HTML tags Telegram accepts."""
+        return prepare_content_for_telegram(content)
 
     def _normalize_markdown_bold(self, text: str) -> str:
-        return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
-
-    def _load_prompt_template(self):
-        template_path = getattr(self.config, "omniroute_prompt_template", "ai_integration/prompt_presets/viral_post_template.json")
-        if not template_path:
-            return {}
-        path = Path(template_path)
-        if not path.is_absolute():
-            base_dir = getattr(self.config, "base_dir", Path(__file__).resolve().parents[1])
-            path = Path(base_dir) / template_path
-        try:
-            with open(path, "r", encoding="utf-8") as fp:
-                return json.load(fp)
-        except Exception as exc:
-            print(f"⚠️ No se pudo cargar el template de prompt ({path}): {exc}")
-            return {}
-
-    def _compose_system_message(self, template):
-        parts = [template.get("system_instruction", self.base_prompt)]
-        persona = template.get("persona", {})
-        if persona:
-            parts.append(
-                f"Actúa como {persona.get('nombre', 'un estratega')} con habilidades en "
-                f"{', '.join(persona.get('habilidades', []))}. Objetivo: {persona.get('objetivo', '')}."
-            )
-        defaults = template.get("defaults", {})
-        if defaults:
-            parts.append(
-                f"Tono: {defaults.get('tono', 'profesional')}. Audiencia: {defaults.get('audiencia', 'usuarios de Telegram')}"
-            )
-        if self.copy_options:
-            parts.append("Copys sugeridos: " + " | ".join(self.copy_options))
-        if self.emoji_count:
-            parts.append(f"Incluye aproximadamente {self.emoji_count} emojis.")
-        if self.base_prompt:
-            parts.append(self.base_prompt)
-        return "\n".join([p for p in parts if p])
-
-    def _compose_user_payload(self, template, topic, instructions, user_message):
-        framework = template.get("virality_framework", {})
-        output = template.get("output_format", {})
-        defaults = template.get("defaults", {})
-        web_snippets = getattr(self, 'web_snippets', [])
-        return {
-            "tema": topic,
-            "instrucciones": instructions or user_message,
-            "mensaje_chat": user_message,
-            "web_snippets": web_snippets,
-            "contexto": {
-                "framework": framework,
-                "output_format": output,
-                "defaults": defaults,
-            }
-        }
-
-
-class _TelegramHTMLSanitizer(HTMLParser):
-    allowed_tags = {
-        "b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code", "pre", "a"
-    }
-    allowed_attrs = {"a": {"href"}}
-
-    def __init__(self):
-        super().__init__()
-        self._chunks: list[str] = []
-
-    def handle_starttag(self, tag, attrs):
-        tag = tag.lower()
-        if tag not in self.allowed_tags:
-            return
-        attr_text = ""
-        if attrs and tag in self.allowed_attrs:
-            filtered = []
-            for name, value in attrs:
-                if name in self.allowed_attrs[tag] and value:
-                    if tag == "a" and not value.lower().startswith(("http://", "https://")):
-                        continue
-                    filtered.append((name, escape(value, quote=True)))
-            if filtered:
-                attr_text = " " + " ".join(f'{k}="{v}"' for k, v in filtered)
-        self._chunks.append(f"<{tag}{attr_text}>")
-
-    def handle_endtag(self, tag):
-        tag = tag.lower()
-        if tag in self.allowed_tags:
-            self._chunks.append(f"</{tag}>")
-
-    def handle_data(self, data):
-        if data:
-            self._chunks.append(escape(data, quote=False))
-
-    def handle_entityref(self, name):
-        self._chunks.append(f"&{name};")
-
-    def handle_charref(self, name):
-        self._chunks.append(f"&#{name};")
-
-    def get_data(self) -> str:
-        return "".join(self._chunks)
+        return prepare_content_for_telegram(text)

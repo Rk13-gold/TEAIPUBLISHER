@@ -46,15 +46,54 @@ except ImportError:
         return doc.toPlainText()
 
 try:
-    from utils.telegram_format import prepare_content_for_telegram, build_post_content
+    from utils.telegram_format import (
+        prepare_content_for_telegram, build_post_content,
+        clamp_telegram_text, split_telegram_text,
+        TELEGRAM_CAPTION_LIMIT, TELEGRAM_TEXT_LIMIT,
+    )
 except ImportError:
+    # Should not happen (utils/ ships with the app), but never fall back to
+    # slicing HTML blindly: that would cut tags in half and Telegram rejects it.
+    _TAG_SPLIT = re.compile(r'(<[^>]*>)')
+
     def prepare_content_for_telegram(c):
         return c
+
     def build_post_content(title, body, cta='', hashtags=''):
         parts = [p for p in [title and f'<b>{title}</b>', body] if p]
         if cta or hashtags:
             parts.append('\n'.join(p for p in [cta, hashtags] if p))
         return '\n\n'.join(parts)
+
+    def _truncate_at_tag_boundary(html, limit):
+        if len(html) <= limit:
+            return html
+        head = html[:limit]
+        # Drop a trailing partial tag such as "<b" or "<a href=".
+        cut = max(head.rfind('<'), head.rfind('&'))
+        if head.rfind('<') > cut:
+            cut = head.rfind('<')
+        return head[:cut] if cut > 0 else head
+
+    def clamp_telegram_text(html, limit=1024, ellipsis='\n\n...'):
+        return _truncate_at_tag_boundary(html, max(0, limit - len(ellipsis))) + ellipsis
+
+    def split_telegram_text(html, limit=4096):
+        if len(html) <= limit:
+            return [html]
+        chunks = []
+        rest = html
+        while rest:
+            if len(rest) <= limit:
+                chunks.append(rest)
+                break
+            head = _truncate_at_tag_boundary(rest, limit)
+            chunks.append(head)
+            rest = rest[len(head):]
+        return chunks
+
+    TELEGRAM_CAPTION_LIMIT = 1024
+    TELEGRAM_TEXT_LIMIT = 4096
 
 try:
     from gui.emoji_line_edit import EmojiLineEdit
@@ -91,21 +130,9 @@ except ImportError:
             "ultra": {"bitrate": "320k", "name": "Ultra (320k)"}
         }
 
-def _clamp_html_caption(caption, limit=1024):
+def _clamp_html_caption(caption, limit=TELEGRAM_CAPTION_LIMIT):
     """Truncate an HTML caption to `limit` chars without cutting tags in half."""
-    if len(caption) <= limit:
-        return caption
-    head = caption[:limit - 3]
-    pairs = re.findall(r'<(/?)(b|i|u|code|pre|em|strong)>', head)
-    stack = []
-    for closing, tag in pairs:
-        if closing:
-            if stack and stack[-1] == tag:
-                stack.pop()
-        else:
-            stack.append(tag)
-    close_tags = ''.join(f'</{t}>' for t in stack)
-    return head + close_tags + '...'
+    return clamp_telegram_text(caption, limit)
 
 # Professional publishing worker for ordered Telegram posts
 class PublishWorker(QThread):
@@ -242,9 +269,9 @@ class PublishWorker(QThread):
             full_content = caption
 
             # Limit caption to 1024 characters for media posts (HTML-safe)
-            caption = _clamp_html_caption(caption, 1024)
+            caption = _clamp_html_caption(caption, TELEGRAM_CAPTION_LIMIT)
             # If the full text did not fit in the caption, it will be sent as a separate message
-            self._caption_truncated = len(full_content) > 1024
+            self._caption_truncated = len(full_content) > TELEGRAM_CAPTION_LIMIT
             
             if media_type == "photo":
                 return self.send_photo(token, chat_id, file_path, caption)
@@ -264,8 +291,8 @@ class PublishWorker(QThread):
             media_type = self.post_data['presentation_type']
             caption = self.post_data.get('main_content', '')
 
-            # Limit caption to 1024 characters for media posts (HTML-safe)
-            caption = _clamp_html_caption(caption, 1024)
+            # Limit caption to Telegram's media caption maximum (HTML-safe)
+            caption = _clamp_html_caption(caption, TELEGRAM_CAPTION_LIMIT)
             
             if media_type == "photo":
                 return self.send_photo(token, chat_id, file_path, caption)
@@ -278,28 +305,35 @@ class PublishWorker(QThread):
             self.progress.emit(f"❌ Error en presentación: {e}")
             return False
 
+    def _send_html_message(self, token, chat_id, text, description="mensaje"):
+        """Send HTML text, splitting it so every part fits Telegram's 4096 limit."""
+        chunks = split_telegram_text(text, TELEGRAM_TEXT_LIMIT)
+        self.progress.emit(f"📝 {description.capitalize()}: {len(text)} caracteres → {len(chunks)} parte(s)")
+
+        for index, chunk in enumerate(chunks, start=1):
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            data = {"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"}
+            response = requests.post(url, data=data, timeout=30)
+            result = response.json()
+            if not result.get("ok"):
+                self._last_error = result.get('description', 'Error desconocido')
+                self.progress.emit(f"❌ Error API Telegram (parte {index}/{len(chunks)}): {self._last_error}")
+                return False
+            if len(chunks) > 1:
+                self.progress.emit(f"✅ Parte {index}/{len(chunks)} enviada")
+                if index < len(chunks):
+                    time.sleep(1.5)
+        return True
+
     def send_main_message(self, token, chat_id):
         """Send text-only main message"""
         try:
             text = self.post_data['main_content']
-            self.progress.emit(f"📝 Preparando mensaje: {len(text)} caracteres")
-            
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
-            
             self.progress.emit("📡 Enviando petición a Telegram...")
-            response = requests.post(url, data=data, timeout=30)
-            result = response.json()
-            
-            self.progress.emit(f"📡 Respuesta de Telegram: {result}")
-            
-            if result.get("ok"):
+            if self._send_html_message(token, chat_id, text, "mensaje principal"):
                 self.progress.emit("✅ Mensaje principal enviado")
                 return True
-            else:
-                self._last_error = result.get('description', 'Error desconocido')
-                self.progress.emit(f"❌ Error API Telegram: {self._last_error}")
-                return False
+            return False
         except requests.exceptions.Timeout:
             self._last_error = "Timeout: La petición tardó demasiado"
             self.progress.emit(f"❌ {self._last_error}")
@@ -415,25 +449,12 @@ class PublishWorker(QThread):
         """Send CTA and hashtags as separate message (without buttons)"""
         try:
             text = self.post_data['cta_hashtags']
-            
-            self.progress.emit(f"📝 Preparando CTA: {len(text)} caracteres")
-            
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
-            
+
             self.progress.emit("📡 Enviando CTA a Telegram...")
-            response = requests.post(url, data=data, timeout=30)
-            result = response.json()
-            
-            self.progress.emit(f"📡 Respuesta de Telegram: {result}")
-            
-            if result.get("ok"):
+            if self._send_html_message(token, chat_id, text, "CTA y hashtags"):
                 self.progress.emit("✅ CTA y hashtags enviados")
                 return True
-            else:
-                self._last_error = result.get('description', 'Error desconocido')
-                self.progress.emit(f"❌ Error API Telegram en CTA: {self._last_error}")
-                return False
+            return False
         except requests.exceptions.Timeout:
             self._last_error = "Timeout: La petición de CTA tardó demasiado"
             self.progress.emit(f"❌ {self._last_error}")
@@ -991,8 +1012,8 @@ class PublishTab(QWidget):
         params_layout = QFormLayout()
         
         # Telegram limits info
-        self.max_text_label = QLabel("4096 caracteres")
-        self.max_caption_label = QLabel("1024 caracteres") 
+        self.max_text_label = QLabel(f"{TELEGRAM_TEXT_LIMIT} caracteres")
+        self.max_caption_label = QLabel(f"{TELEGRAM_CAPTION_LIMIT} caracteres")
         self.max_voice_label = QLabel("50 MB")
         self.max_photo_label = QLabel("10 MB")
         self.max_video_label = QLabel("50 MB")
@@ -1165,36 +1186,34 @@ class PublishTab(QWidget):
         else:
             QMessageBox.information(self, "Info", "Configuración de botones no disponible")
 
+    def _build_current_post(self):
+        """Build the canonical Telegram HTML for whatever is in the editor now.
+
+        This is the single source both the preview and the publish step read, so
+        the preview always matches what Telegram receives.
+        """
+        title = self.title_edit.text().strip()
+        content = emoji_document_to_plaintext(self.edit_area.document()).strip()
+        cta = self.cta_edit.text().strip()
+        hashtags = self.hashtags_edit.text().strip()
+        body = prepare_content_for_telegram(content)
+        main_content = build_post_content(title, body)
+        cta_hashtags = ''
+        if cta or hashtags:
+            # Same pipeline as the body: CTA/hashtags go out with parse_mode=HTML,
+            # so they must be escaped and markdown-converted before sending.
+            cta_hashtags = prepare_content_for_telegram('\n'.join(p for p in (cta, hashtags) if p))
+        return main_content, cta_hashtags
+
     def update_preview(self):
         """Update post preview using PostPreviewWidget (same logic as AI Generator)"""
         if hasattr(self, 'post_preview') and self.post_preview:
-            # Get content parts
-            title = self.title_edit.text().strip()
-            content = emoji_document_to_plaintext(self.edit_area.document()).strip()
-            cta = self.cta_edit.text().strip()
-            hashtags = self.hashtags_edit.text().strip()
-            
-            # Combine content using AI Generator logic
-            full_text = ""
-            if title:
-                full_text += f"{title}\n\n"
-            if content:
-                full_text += content
-            if cta or hashtags:
-                full_text += "\n\n"
-            if cta:
-                full_text += f"{cta}"
-            if hashtags:
-                if cta:
-                    full_text += f"\n{hashtags}"
-                else:
-                    full_text += hashtags
-            
-            # Format text using same logic as AI Generator
-            formatted_text = self.format_telegram_post(full_text)
-            
-            # Update preview using correct methods (same as AI Generator)
-            self.post_preview.set_html(formatted_text)
+            main_content, cta_hashtags = self._build_current_post()
+            # Show exactly what will be published: same canonical HTML, same order.
+            # The CTA/hashtags travel as a separate message, so they get their
+            # own block instead of being appended to the main text.
+            self.post_preview.set_telegram_html(main_content)
+            self.post_preview.set_secondary_html(cta_hashtags)
             self.post_preview.set_image(self.presentation_media_path)
             
             # Update buttons using same format as AI Generator - SIEMPRE mostrar botones configurados
@@ -1252,13 +1271,6 @@ class PublishTab(QWidget):
         # Actualizar estadísticas del post
         self.update_post_statistics()
 
-    def update_character_counter(self):
-        """Update character counter for content"""
-        content = emoji_document_to_plaintext(self.edit_area.document())
-        char_count = len(content)
-        word_count = len([word for word in content.split() if word])
-        self.char_counter.setText(f"{char_count} caracteres ({word_count} palabras)")
-
     def select_voice_file(self):
         """Select voice/audio file for premium note"""
         file, _ = QFileDialog.getOpenFileName(
@@ -1281,28 +1293,13 @@ class PublishTab(QWidget):
         pass  # Events already connected in setup methods
 
     def prepare_post_data(self):
-        """Prepare post data for publishing"""
-        # Get content with formatting (bold, italic, etc preserved)
-        raw_content = emoji_document_to_plaintext(self.edit_area.document()).strip()
-        title = self.title_edit.text().strip()
+        """Prepare post data for publishing.
 
-        # Apply Telegram formatting to content
-        main_content = prepare_content_for_telegram(raw_content)
-        full_content = build_post_content(title, main_content)
+        Reads the same canonical HTML the preview renders, so what is published
+        is exactly what was previewed.
+        """
+        full_content, cta_hashtags = self._build_current_post()
 
-        # Get CTA and hashtags
-        cta = self.cta_edit.text().strip()
-        hashtags = self.hashtags_edit.text().strip()
-        cta_hashtags = ""
-        if cta or hashtags:
-            if cta:
-                cta_hashtags += cta
-            if hashtags:
-                if cta:
-                    cta_hashtags += f"\n{hashtags}"
-                else:
-                    cta_hashtags = hashtags
-        
         # Get voice data
         voice_data = {}
         if self.voice_selected_file:
@@ -1336,17 +1333,21 @@ class PublishTab(QWidget):
         # If the content includes a bold title inserted from AI tab, try to extract it
         # If it's HTML <b>title</b> we can extract a simple plain title
         title = ""
+        body = main_content
         if main_content.startswith('<b>') and '</b>' in main_content:
             try:
                 t_end = main_content.index('</b>')
                 title = re.sub('<.*?>', '', main_content[3:t_end])
-                main_content = main_content[t_end+4:].strip()
+                body = main_content[t_end+4:].strip()
             except Exception:
                 # fallback to no splitting
-                pass
+                title = ""
 
         self.title_edit.setText(title)
-        self.edit_area.setHtml(main_content if main_content else '')
+        # Load as rich text so formatting stays formatting and \n stays a real
+        # line break, keeping the editor consistent with the preview.
+        from utils.telegram_format import html_to_preview_html
+        self.edit_area.setHtml(html_to_preview_html(body))
         self.edit_area.moveCursor(QTextCursor.MoveOperation.End)
 
         # Presentation media
@@ -1463,91 +1464,38 @@ class PublishTab(QWidget):
             QMessageBox.critical(self, "Error", message)
 
     def format_telegram_post(self, text):
-        """Format text for Telegram preview (same logic as AI Generator)"""
-        lines = text.splitlines()
-        formatted = []
-        for idx, line in enumerate(lines):
-            stripped = line.strip()
-            # Título: primera línea, o línea en mayúsculas, o que empieza con "Título:"
-            if idx == 0 or stripped.startswith("Título:") or (stripped.isupper() and len(stripped) > 3):
-                title = stripped.replace("Título:", "").strip()
-                if title:
-                    formatted.append(f"<b>{title}</b>")
-                continue
-            # Subtítulo: línea que empieza con "Subtítulo:"
-            if stripped.startswith("Subtítulo:"):
-                subtitle = stripped.replace("Subtítulo:", "").strip()
-                if subtitle:
-                    formatted.append(f"<b>{subtitle}</b>")
-                continue
-            # Listas: líneas que empiezan con "- " o "* "
-            if stripped.startswith("- ") or stripped.startswith("* "):
-                formatted.append(f"• {stripped[2:]}")
-                continue
-            # Enlaces: http/https
-            if "http://" in stripped or "https://" in stripped:
-                url_pattern = r'(https?://\S+)'
-                def repl(m):
-                    url = m.group(1)
-                    return f'<a href="{url}">{url}</a>'
-                line = re.sub(url_pattern, repl, stripped)
-                formatted.append(line)
-                continue
-            # Línea vacía
-            if not stripped:
-                formatted.append("")
-                continue
-            # Código: empieza con 4 espacios o ```
-            if stripped.startswith("```") or stripped.startswith("    "):
-                code = stripped.replace("```", "").strip()
-                formatted.append(f"<code>{code}</code>")
-                continue
-            # Por defecto, texto normal
-            formatted.append(stripped)
-        return "<br>".join(formatted)
+        """Convert plain text into Telegram HTML via the shared pipeline."""
+        return prepare_content_for_telegram(text)
 
     def update_post_statistics(self):
-        """Update real-time post statistics"""
-        # Calcular caracteres totales
-        title = self.title_edit.text().strip()
-        content = emoji_document_to_plaintext(self.edit_area.document()).strip()
-        cta = self.cta_edit.text().strip()
-        hashtags = self.hashtags_edit.text().strip()
-        
-        full_text = ""
-        if title:
-            full_text += title + "\n\n"
-        if content:
-            full_text += content
-        if cta or hashtags:
-            full_text += "\n\n"
-        if cta:
-            full_text += cta
-        if hashtags:
-            if cta:
-                full_text += "\n" + hashtags
-            else:
-                full_text += hashtags
-        
-        char_count = len(full_text)
-        word_count = len([word for word in full_text.split() if word])
-        
+        """Update real-time post statistics.
+
+        Counts the same canonical HTML that gets published, so the number shown
+        is the number Telegram enforces.
+        """
+        from utils.telegram_format import visible_length
+        main_content, cta_hashtags = self._build_current_post()
+
+        char_count = visible_length(main_content) + visible_length(cta_hashtags)
+        word_count = len([word for word in main_content.split() if word.strip()])
+
         # Actualizar labels de estadísticas
-        self.current_chars_label.setText(f"{char_count}/4096")
-        if char_count > 4096:
+        self.current_chars_label.setText(f"{char_count}/{TELEGRAM_TEXT_LIMIT}")
+        if char_count > TELEGRAM_TEXT_LIMIT:
             self.current_chars_label.setStyleSheet("color: red; font-weight: bold;")
         elif char_count > 3500:
             self.current_chars_label.setStyleSheet("color: orange; font-weight: bold;")
         else:
             self.current_chars_label.setStyleSheet("color: green;")
-        
+
         self.current_words_label.setText(str(word_count))
 
         # Contador en vivo del editor
         if getattr(self, 'editor_stats_label', None) is not None:
             self.editor_stats_label.setText(f"{char_count} caracteres · {word_count} palabras")
             if theme:
-                color = theme.DANGER if char_count > 4096 else (theme.WARNING if char_count > 3500 else theme.TEXT_SECONDARY)
+                color = (theme.DANGER if char_count > TELEGRAM_TEXT_LIMIT
+                         else theme.WARNING if char_count > 3500 else theme.TEXT_SECONDARY)
                 self.editor_stats_label.setStyleSheet(
                     f"color: {color}; font-size: {theme.FONT['sm']}px; padding: 0 6px;"
                 )
