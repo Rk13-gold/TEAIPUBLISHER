@@ -1,7 +1,7 @@
 import re
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QTextEdit, QScrollArea, QFrame, QSizePolicy
-from PySide6.QtGui import QPixmap, QTextCursor, QTextImageFormat, QImage, QTextDocument
+from PySide6.QtGui import QPixmap, QTextCursor, QTextImageFormat, QImage, QTextDocument, QPainter
 from PySide6.QtCore import Qt, QUrl
 
 from gui.emoji_renderer import render_emoji
@@ -20,6 +20,65 @@ _EMOJI_RE = re.compile(
     '\u2600-\u27BF\u2934\u2935\u2B05\u2B06\u2B07\u2B1B\u2B1C\u2B50'
     '\u2B55\u3030\u303D\u3297\u3299]+'
 )
+
+class _EmojiButton(QPushButton):
+    """Button whose label is drawn with the bundled emoji renderer.
+
+    The system font carries no emoji glyphs (QFontMetrics.inFont is False for
+    every one of them) and Qt's family fallback does not rescue them here: the
+    emoji simply draws nothing, not even a tofu box. Telegram renders button
+    labels with its own fonts, so this only affects the preview.
+    """
+
+    def __init__(self, text, parent=None):
+        super().__init__(parent)
+        self._label = text or ""
+        # The label is painted by hand; keep the built-in one empty so the
+        # stylesheet still provides the chrome (background, border, padding).
+        super().setText("")
+
+    def _runs(self):
+        """Split the label into ('emoji', pixmap) / ('text', str) runs, in order."""
+        runs = []
+        size = max(12, int(self.fontMetrics().height() * 0.95))
+        pos = 0
+        for m in _EMOJI_RE.finditer(self._label):
+            if m.start() > pos:
+                runs.append(('text', self._label[pos:m.start()]))
+            pix = render_emoji(m.group(), size)
+            if pix is None or pix.isNull():
+                runs.append(('text', m.group()))
+            else:
+                runs.append(('emoji', pix))
+            pos = m.end()
+        if pos < len(self._label):
+            runs.append(('text', self._label[pos:]))
+        return runs
+
+    def paintEvent(self, event):
+        super().paintEvent(event)  # chrome only, text is empty
+        runs = self._runs()
+        if not runs:
+            return
+        fm = self.fontMetrics()
+        widths = [
+            val.width() if kind == 'emoji' else fm.horizontalAdvance(val)
+            for kind, val in runs
+        ]
+        x = max(0, (self.width() - sum(widths)) / 2)
+        y = (self.height() - fm.height()) / 2
+
+        painter = QPainter(self)
+        painter.setFont(self.font())
+        painter.setPen(self.palette().buttonText().color())
+        for (kind, val), w in zip(runs, widths):
+            if kind == 'emoji':
+                painter.drawPixmap(int(x), int(y + (fm.height() - val.height()) / 2), val)
+            else:
+                painter.drawText(int(x), int(y + fm.ascent()), val)
+            x += w
+        painter.end()
+
 
 class PostPreviewWidget(QWidget):
     def __init__(self, parent=None):
@@ -276,7 +335,7 @@ class PostPreviewWidget(QWidget):
             # --- Para que cada botón ocupe el mismo ancho, calcula el stretch ---
             num_btns = len(row)
             for btn in row:
-                b = QPushButton(btn["text"])
+                b = _EmojiButton(btn["text"])
                 b.setCursor(Qt.PointingHandCursor)
                 b.setEnabled(False)
                 b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)

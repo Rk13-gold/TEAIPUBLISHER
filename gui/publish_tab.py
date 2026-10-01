@@ -130,6 +130,27 @@ except ImportError:
             "ultra": {"bitrate": "320k", "name": "Ultra (320k)"}
         }
 
+def _describe_conn_error(exc):
+    """Turn a connection failure into something actionable.
+
+    The canned "revisa internet/firewall" message hid the real cause:
+    ``SSLError`` and ``ProxyError`` are subclasses of ``ConnectionError``, so
+    a TLS interception or a misconfigured proxy was reported as a plain
+    network outage.
+    """
+    detail = str(exc)
+    if isinstance(exc, requests.exceptions.SSLError):
+        hint = "fallo de TLS/certificado (proxy o antivirus interceptando HTTPS)"
+    elif isinstance(exc, requests.exceptions.ProxyError):
+        hint = "proxy mal configurado"
+    elif isinstance(exc, requests.exceptions.ConnectTimeout):
+        hint = "no se pudo establecer la conexión (red lenta o sin salida a internet)"
+    else:
+        hint = "sin conexión con api.telegram.org (revisa internet/firewall/DNS)"
+    # Keep the underlying reason: it is what actually distinguishes the causes.
+    return f"{hint} → {detail[:200]}" if detail else hint
+
+
 def _clamp_html_caption(caption, limit=TELEGRAM_CAPTION_LIMIT):
     """Truncate an HTML caption to `limit` chars without cutting tags in half."""
     return clamp_telegram_text(caption, limit)
@@ -338,8 +359,8 @@ class PublishWorker(QThread):
             self._last_error = "Timeout: La petición tardó demasiado"
             self.progress.emit(f"❌ {self._last_error}")
             return False
-        except requests.exceptions.ConnectionError:
-            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+        except requests.exceptions.ConnectionError as e:
+            self._last_error = _describe_conn_error(e)
             self.progress.emit(f"❌ Error de conexión con Telegram: {self._last_error}")
             return False
         except Exception as e:
@@ -408,7 +429,7 @@ class PublishWorker(QThread):
                 caption += f"👑 {voice_title}\n\n"
             if voice_description:
                 caption += f"{voice_description}\n\n"
-            caption += "💎 Contenido Premium Exclusivo - Máxima Calidad 🔒"
+            caption += "🎧 Escuchar con Audífonos | Cápsula Diario"
             
             # Limit caption to 1024 characters for voice messages (HTML-safe)
             caption = _clamp_html_caption(caption, 1024)
@@ -436,8 +457,8 @@ class PublishWorker(QThread):
                 self._last_error = result.get('description', 'Error desconocido')
                 self.progress.emit(f"❌ Telegram rechazó la nota de voz: {self._last_error}")
                 return False
-        except requests.exceptions.ConnectionError:
-            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+        except requests.exceptions.ConnectionError as e:
+            self._last_error = _describe_conn_error(e)
             self.progress.emit(f"❌ Error de conexión al enviar nota de voz: {self._last_error}")
             return False
         except Exception as e:
@@ -459,8 +480,8 @@ class PublishWorker(QThread):
             self._last_error = "Timeout: La petición de CTA tardó demasiado"
             self.progress.emit(f"❌ {self._last_error}")
             return False
-        except requests.exceptions.ConnectionError:
-            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+        except requests.exceptions.ConnectionError as e:
+            self._last_error = _describe_conn_error(e)
             self.progress.emit(f"❌ Error de conexión con Telegram en CTA: {self._last_error}")
             return False
         except Exception as e:
@@ -506,8 +527,8 @@ class PublishWorker(QThread):
             self._last_error = "Timeout: La petición de botones tardó demasiado"
             self.progress.emit(f"❌ {self._last_error}")
             return False
-        except requests.exceptions.ConnectionError:
-            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+        except requests.exceptions.ConnectionError as e:
+            self._last_error = _describe_conn_error(e)
             self.progress.emit(f"❌ Error de conexión con Telegram en botones: {self._last_error}")
             return False
         except Exception as e:
@@ -529,8 +550,8 @@ class PublishWorker(QThread):
             self._last_error = result.get('description', 'Error desconocido')
             self.progress.emit(f"❌ Telegram rechazó la imagen: {self._last_error}")
             return False
-        except requests.exceptions.ConnectionError:
-            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+        except requests.exceptions.ConnectionError as e:
+            self._last_error = _describe_conn_error(e)
             self.progress.emit(f"❌ Error de conexión al enviar imagen: {self._last_error}")
             return False
         except requests.exceptions.Timeout:
@@ -556,8 +577,8 @@ class PublishWorker(QThread):
             self._last_error = result.get('description', 'Error desconocido')
             self.progress.emit(f"❌ Telegram rechazó el video: {self._last_error}")
             return False
-        except requests.exceptions.ConnectionError:
-            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+        except requests.exceptions.ConnectionError as e:
+            self._last_error = _describe_conn_error(e)
             self.progress.emit(f"❌ Error de conexión al enviar video: {self._last_error}")
             return False
         except Exception as e:
@@ -579,8 +600,8 @@ class PublishWorker(QThread):
             self._last_error = result.get('description', 'Error desconocido')
             self.progress.emit(f"❌ Telegram rechazó la animación: {self._last_error}")
             return False
-        except requests.exceptions.ConnectionError:
-            self._last_error = "sin conexión con api.telegram.org (revisa internet/firewall)"
+        except requests.exceptions.ConnectionError as e:
+            self._last_error = _describe_conn_error(e)
             self.progress.emit(f"❌ Error de conexión al enviar animación: {self._last_error}")
             return False
         except Exception as e:
